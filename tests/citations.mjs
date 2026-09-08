@@ -1,0 +1,45 @@
+import { build } from 'vite';
+import { _electron as electron, expect } from '@playwright/test';
+import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import JSZip from 'jszip';
+import assert from 'node:assert/strict';
+await build({configFile:false,base:'./',build:{outDir:'artifacts/citation-probe',rollupOptions:{input:'tests/citation-fixture/index.html'}}});
+const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({args:['.','--user-data-dir='+await mkdtemp(tmpdir()+'/superdocx-citations-')],env});
+try {
+ await app.evaluate(async({BrowserWindow},file)=>{const w=new BrowserWindow({show:false,webPreferences:{contextIsolation:true}});await w.loadFile(file)},path.resolve('artifacts/citation-probe/tests/citation-fixture/index.html'));
+ const page=(await app.windows()).find(p=>p.url().includes('citation-fixture'));
+ console.log((await app.windows()).map(p=>p.url()));
+ page.on('console',m=>console.log('CONSOLE',m.text()));page.on('pageerror',e=>console.log('PAGEERROR',e.message));
+ await page.waitForFunction(()=>typeof window.startProbe==='function');
+ await page.evaluate(bytes=>window.startProbe(bytes),[...await readFile('public/welcome.docx')]);
+ await expect.poll(()=>page.evaluate(()=>window.probeReady),{timeout:60000}).toBe(true);
+ await page.getByText('一份文档，无限可能。',{exact:true}).click();
+ const result=await page.evaluate(async()=>{
+  const doc=window.probe.activeEditor.doc;
+  const selection=await doc.selection.current({includeText:true});
+  const source=await doc.citations.sources.insert({type:'journalArticle',fields:{title:'SuperDocx citation round-trip test',authors:[{first:'Jane',last:'Example'}],year:'2026',journalName:'Offline Test Journal',volume:'1',pages:'1-5',doi:'10.0000/superdocx-test'}});
+  const citation=await doc.citations.insert({at:selection.target,sourceIds:[source.source.sourceId]});
+  const bibliography=await doc.citations.bibliography.insert({at:{kind:'documentEnd'}});
+  return {selection,source,citation,bibliography,sources:await doc.citations.sources.list({}),citations:await doc.citations.list({})};
+ });
+ console.log(JSON.stringify(result,null,2));
+ await writeFile('artifacts/citations-results.json',JSON.stringify(result,null,2));
+ assert.equal(result.source.success,true);assert.equal(result.citation.success,true);assert.equal(result.bibliography.success,true);
+ const bytes=await page.evaluate(async()=>[...new Uint8Array(await(await window.probe.export({exportType:['docx'],triggerDownload:false})).arrayBuffer())]);
+ await writeFile('artifacts/citations.docx',new Uint8Array(bytes));
+ const zip=await JSZip.loadAsync(new Uint8Array(bytes));
+ const xml=await zip.file('word/document.xml').async('string');
+ assert.match(xml,/CITATION/);assert.match(xml,/BIBLIOGRAPHY/);
+ const metadata=await Promise.all(Object.values(zip.files).filter(f=>!f.dir&&f.name.endsWith('.xml')).map(f=>f.async('string')));
+ assert.ok(metadata.some(x=>x.includes('SuperDocx citation round-trip test')));
+ await page.evaluate(async bytes=>{await window.probe.replaceFile(new File([new Uint8Array(bytes)],'reopened.docx'))},bytes);
+ const reopened=await page.evaluate(async()=>({sources:await window.probe.activeEditor.doc.citations.sources.list({}),citations:await window.probe.activeEditor.doc.citations.list({})}));
+ assert.equal(reopened.sources.total,1);assert.equal(reopened.citations.total,1);
+ await page.evaluate(()=>window.updateProbeBibliography());
+ await page.evaluate(()=>window.updateProbeBibliography());
+ await writeFile('artifacts/citations-results.json',JSON.stringify({status:'passed',insert:result,reopened},null,2));
+ console.log('PASS citation and bibliography DOCX round trip');
+}finally{await app.evaluate(({app})=>app.exit());}

@@ -1,0 +1,52 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+const testProfile = await mkdtemp(tmpdir() + '/superdocx-test-');
+import { _electron as electron, expect } from '@playwright/test';
+import { readFile, writeFile } from 'node:fs/promises';
+import JSZip from 'jszip';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({executablePath: process.env.SUPERDOCX_TEST_EXECUTABLE, args:[...(process.env.SUPERDOCX_TEST_EXECUTABLE ? [] : ['.']), '--user-data-dir=' + testProfile],env});
+const page=await app.firstWindow();
+const errors=[], remote=[];
+page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(/^https?:/.test(r.url()))remote.push(r.url());});
+const output=path.resolve('artifacts/rich-editing.docx');
+try {
+ await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
+ await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},output);
+ await page.getByText('A LITTLE SPACE FOR BIG IDEAS',{exact:true}).click();
+ await page.getByRole('tab',{name:'插入',exact:true}).click();
+ const chooser=page.waitForEvent('filechooser');
+ await page.locator('[data-item="btn-image"]').click();
+ await (await chooser).setFiles(path.resolve('build/icons/32x32.png'));
+ await expect(page.locator('#document-editor img').first()).toBeVisible();
+ await page.getByText('一份文档，无限可能。',{exact:true}).click();
+ await page.locator('[data-item="btn-table"]').click();
+ await page.locator('.toolbar-table-grid__item').nth(6).click();
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('已保存到本地');
+ let zip=await JSZip.loadAsync(await readFile(output));
+ let xml=await zip.file('word/document.xml').async('string');
+ assert.match(xml,/<w:tbl>/);assert.match(xml,/<w:drawing>/);assert.ok(Object.keys(zip.files).some(n=>n.startsWith('word/media/')));
+ await page.getByRole('tab',{name:'视图',exact:true}).click();
+ await page.locator('[data-item="btn-search"]').click();
+ await expect(page.getByRole('textbox',{name:'查找',exact:true})).toBeVisible();
+ await page.getByRole('textbox',{name:'查找',exact:true}).fill('无限可能');
+ await writeFile('artifacts/search.html',await page.locator('body').innerHTML());
+
+ if (!(await page.getByLabel('替换为',{exact:true}).isVisible())) await page.locator('.sd-find-replace__btn--expander').click();
+ await page.getByLabel('替换为',{exact:true}).fill('离线编辑');
+ await page.getByRole('button',{name:'全部替换',exact:true}).click();
+ await expect(page.locator('#document-editor')).toContainText('离线编辑');
+ await page.getByLabel('关闭查找',{exact:true}).click();
+ await page.getByRole('button',{name:'保存',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('已保存到本地');
+ await page.getByRole('button',{name:'打开文档',exact:true}).click();
+ await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
+ await expect(page.locator('#document-editor')).toContainText('离线编辑');
+ await expect(page.locator('#document-editor img').first()).toBeVisible();
+ assert.deepEqual(errors,[]);assert.deepEqual(remote,[]);
+ console.log('PASS: local image embedding, table insertion, find/replace and reopen with zero remote requests');
+} catch(e){await page.screenshot({path:'artifacts/rich-failure.png'});console.log('ERRORS',errors,await page.locator('body').innerText());throw e;}
+finally{await app.evaluate(({app})=>app.exit());}

@@ -1,0 +1,101 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+const testProfile = await mkdtemp(tmpdir() + '/superdocx-test-');
+import { _electron as electron, expect } from '@playwright/test';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import JSZip from 'jszip';
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+const app = await electron.launch({ executablePath: process.env.SUPERDOCX_TEST_EXECUTABLE, args: [...(process.env.SUPERDOCX_TEST_EXECUTABLE ? [] : ['.']), '--user-data-dir=' + testProfile], env });
+const page = await app.firstWindow();
+const errors = [];
+page.on('pageerror', error => { errors.push(error.message); console.log('PAGEERROR',error.stack); });
+const save = path.resolve('artifacts/features.docx');
+async function selectText(text) {
+ const box = await page.getByText(text, { exact: true }).boundingBox();
+ await page.mouse.move(box.x + 1, box.y + box.height / 2); await page.mouse.down();
+ await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 12 }); await page.mouse.up();
+}
+async function saveFile() {
+ await page.getByRole('button', {name:'保存',exact:true}).click();
+ await expect(page.locator('.status-bar [role=status]')).toContainText('已保存到本地');
+ return JSZip.loadAsync(await readFile(save));
+}
+try {
+ await expect(page.getByRole('button', {name:'保存',exact:true})).toBeEnabled({timeout:60000});
+ await app.evaluate(({dialog}, file)=> { dialog.showSaveDialog=async()=>({canceled:false,filePath:file}); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]}); dialog.showMessageBox=async()=>({response:1}); },save);
+ await writeFile('artifacts/toolbar.html', await page.locator('#document-toolbar').innerHTML());
+
+ await selectText('一份文档，无限可能。');
+ await page.getByRole('button',{name:'字体设置',exact:true}).click();
+ await page.getByLabel('中文字体',{exact:true}).fill('Songti SC');
+ await page.getByLabel('西文字体',{exact:true}).fill('Times New Roman');
+ await page.getByRole('button',{name:'应用字体'}).click();
+ await expect(page.getByRole('dialog',{name:'字体设置'})).toHaveCount(0);
+ let zip = await saveFile();
+ let xml = await zip.file('word/document.xml').async('string');
+ assert.match(xml,/w:eastAsia="Songti SC"/); assert.match(xml,/w:ascii="Times New Roman"/); assert.match(xml,/w:hAnsi="Times New Roman"/);
+ await page.getByRole('button',{name:'打开文档',exact:true}).click();
+ await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
+ zip = await saveFile(); xml = await zip.file('word/document.xml').async('string');
+ assert.match(xml,/w:eastAsia="Songti SC"/); assert.match(xml,/w:ascii="Times New Roman"/);
+ await page.getByRole('tab',{name:'审阅',exact:true}).click();
+ await page.getByRole('button',{name:'修订',exact:true}).click();
+ await page.getByText('A LITTLE SPACE FOR BIG IDEAS',{exact:true}).click();
+ await page.keyboard.insertText('TRACKED_OFFLINE ');
+
+ await expect(page.locator('.review-panel')).toContainText('TRACKED_OFFLINE');
+ zip = await saveFile(); xml = await zip.file('word/document.xml').async('string');
+ assert.match(xml,/<w:ins\b/); assert.match(xml,/TRACKED_OFFLINE/);
+ await page.getByRole('button',{name:'全部拒绝',exact:true}).click();
+ await expect(page.locator('.review-panel')).toContainText('0 处修订');
+ await expect(page.locator('#document-editor')).not.toContainText('TRACKED_OFFLINE');
+ await page.getByText('A LITTLE SPACE FOR BIG IDEAS',{exact:true}).click();
+ await page.keyboard.insertText('ACCEPTED_OFFLINE ');
+ await expect(page.locator('.review-panel')).toContainText('ACCEPTED_OFFLINE');
+ await page.getByRole('button',{name:'全部接受',exact:true}).click();
+ await expect(page.locator('.review-panel')).toContainText('0 处修订');
+ zip = await saveFile(); xml = await zip.file('word/document.xml').async('string');
+ assert.match(xml,/ACCEPTED_OFFLINE/); assert.doesNotMatch(xml,/<w:ins\b/);
+ await page.getByRole('button',{name:'编辑',exact:true}).click();
+ await page.getByRole('tab',{name:'页面',exact:true}).click();
+ await page.getByRole('button',{name:'页面设置',exact:true}).click();
+ await page.getByLabel('方向',{exact:true}).selectOption('landscape');
+ await page.getByRole('button',{name:'应用页面设置'}).click();
+ await expect(page.getByRole('dialog',{name:'页面设置'})).toHaveCount(0);
+ zip = await saveFile(); xml = await zip.file('word/document.xml').async('string');
+ assert.match(xml, /w:orient="landscape"/); assert.match(xml, /<w:pgSz[^>]*w:w="16838"[^>]*w:h="11906"/);
+ await page.getByText('一份文档，无限可能。',{exact:true}).click();
+ await page.keyboard.insertText('UNSAVED_LANGUAGE ');
+ await expect(page.locator('.unsaved-dot')).toBeVisible();
+ await page.getByRole('tab',{name:'视图',exact:true}).click();
+ await page.getByRole('button',{name:'设置',exact:true}).click();
+ await page.getByLabel('界面语言',{exact:true}).selectOption('en');
+ await page.getByRole('button',{name:'应用设置'}).click();
+ await expect(page.getByRole('button',{name:'Save',exact:true})).toBeEnabled({timeout:60000});
+ await expect(page.getByRole('button',{name:'Font settings',exact:true})).toBeVisible();
+ await expect(page.locator('#document-editor')).toContainText('UNSAVED_LANGUAGE');
+ await expect(page.locator('.unsaved-dot')).toBeVisible();
+ await page.getByRole('tab',{name:'Insert',exact:true}).click();
+ await expect(page.locator('#document-toolbar').getByRole('button',{name:'Image',exact:true})).toBeVisible();
+ await page.screenshot({path:'artifacts/english.png'});
+ await page.getByRole('tab',{name:'View',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByLabel('Interface language',{exact:true}).selectOption('zh');
+ await page.getByRole('button',{name:'Apply settings'}).click();
+ await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
+ await page.screenshot({path:'artifacts/features.png'});
+ await app.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows()[0].setSize(1000,700));
+ await expect.poll(()=>page.evaluate(()=>document.body.scrollWidth<=innerWidth && document.body.scrollHeight<=innerHeight+1)).toBe(true);
+ await expect(page.locator('[data-item="btn-copyFormat"]')).toBeVisible();
+ await page.screenshot({path:'artifacts/narrow.png'});
+ await page.getByRole('button',{name:'新建空白文档',exact:true}).click();
+ await expect(page.locator('.status-bar [role=status]')).toContainText('文档已打开',{timeout:60000});
+ await expect(page.locator('#document-editor')).not.toContainText('UNSAVED_LANGUAGE');
+ await expect(page.locator('.filename')).toContainText('未命名.docx');
+ assert.deepEqual(errors,[]);
+ await writeFile('artifacts/features-results.json', JSON.stringify({status:'passed',checks:['separate fonts DOCX save/reopen','tracked insertion export','reject changes','accept changes','page dimensions','language switch preserves dirty text','tabbed single-row ribbon at 1000px','new blank document'],pageErrors:errors},null,2));
+ console.log('PASS fonts, accept/reject, page setup, languages, ribbon and new document');
+} catch (e) { await page.screenshot({path:'artifacts/features-failure.png'}); console.log('ERRORS',errors, await page.locator('body').innerText()); throw e; }
+finally {await app.evaluate(({app})=>app.exit());}

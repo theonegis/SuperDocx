@@ -1,0 +1,52 @@
+import { initialLanguage } from './preferences';
+const EN = {
+'文档大纲':'Document outline','关闭大纲':'Close outline','标题导航':'Heading navigation','正在读取大纲…':'Loading outline…','暂无标题。在正文应用标题样式后，将显示在这里。':'No headings yet. Apply a heading style to text to show it here.','无法读取文档大纲':'Could not read the document outline','无法定位此标题，请重试':'Could not locate this heading. Try again.',
+'字':'words','正文统计：中文按字，英文和数字按词；不计空白和标点。':'Body text: Chinese characters and English/number words; excludes whitespace and punctuation.',
+'文档缩放':'Document zoom','Ctrl／⌘＋滚轮或触控板捏合缩放':'Ctrl/⌘ + mouse wheel or trackpad pinch to zoom','缩小文档':'Zoom out','放大文档':'Zoom in','重置缩放至 100%':'Reset zoom to 100%',
+'提示':'Notice','关闭提示':'Close notice','知道了':'OK',
+'本地文档':'Local document',
+"插入文献":"Insert source","关闭":"Close","本文档文献":"Document sources","Zotero 云端文献库":"Zotero cloud library","登录 Zotero 网站，创建允许读取个人文献库的 API Key，然后粘贴到这里。无需安装 Zotero 客户端。":"Sign in on the Zotero website, create an API key with personal library read access, and paste it here. Zotero Desktop is not required.","登录 Zotero 并获取密钥":"Sign in to Zotero and get a key","密钥仅保留在本次应用会话中。我们只读取文献，不上传文档。":"The key stays in this app session only. We read sources and never upload your document.","连接账户":"Connect account","断开连接":"Disconnect","搜索文献":"Search sources","搜索标题、作者或年份":"Search title, author or year","搜索":"Search","文献列表":"Sources","无标题":"Untitled","正在读取文献…":"Loading sources\u2026","没有找到文献":"No sources found","条文献":"sources","上一页":"Previous page","下一页":"Next page","基础引用使用文献标题显示，随 DOCX 保存；暂不提供 APA、GB/T 7714 等引用样式。":"Basic citations display source titles and are saved in DOCX. APA, GB/T 7714 and other citation styles are not available yet.","请关闭此窗口，在正文中放置光标后再插入。":"Close this window and place the cursor in the document before inserting.","插入引用":"Insert citation","插入或更新参考文献表":"Insert or update bibliography","Zotero 访问密钥无效或缺少文献库读取权限。":"The Zotero key is invalid or lacks library read access.","Zotero 请求过于频繁，请稍后重试。":"Too many Zotero requests. Try again later.","无法读取 Zotero 文献库，请稍后重试。":"Could not read the Zotero library. Try again later.","Zotero 响应过大。":"The Zotero response is too large.","Zotero 连接中断。":"Zotero connection interrupted.","Zotero 返回了无效数据。":"Zotero returned invalid data.","无法连接 Zotero，请检查网络。":"Could not connect to Zotero. Check your network.","请输入有效的 Zotero API Key。":"Enter a valid Zotero API key.","请先连接 Zotero 账户。":"Connect your Zotero account first.","无效的文献搜索。":"Invalid source search.",
+'功能区':'Ribbon','开始':'Home','页面':'Page','引用':'References','审阅':'Review','视图':'View','定位修订':'Locate revision',
+'仅支持 .docx 文件；旧版 .doc 请先转换为 .docx。':'Only .docx files are supported. Convert legacy .doc files first.',
+'文档为空或超过 50 MB 限制。':'The document is empty or exceeds 50 MB.',
+'文件不是有效的 DOCX 压缩包，或文档已加密。':'This is not a valid DOCX package, or the document is encrypted.',
+'请选择小于 50 MB 的 DOCX 文件。':'Choose a DOCX file smaller than 50 MB.',
+'原文件已移动或删除，请使用“另存为”。':'The original file was moved or deleted. Use Save as.',
+'文件已被其他程序修改，请使用“另存为”保留两份文档。':'Another application changed this file. Use Save as to keep both versions.',
+'文件在保存期间发生变化，请另存为。':'The file changed while saving. Use Save as.',
+
+'字体设置':'Font settings','字体':'Font','统一字体':'Font for all text','保持不变':'Keep unchanged','如需分别设置，可填写以下两项；它们优先于统一字体。':'To use separate fonts, fill in the fields below. They override the shared font.',
+'请切换到编辑模式后设置页面。':'Switch to Edit mode to change page setup.',
+'本地用户':'Local user','欢迎使用 SuperDocx.docx':'Welcome to SuperDocx.docx','正在打开文档…':'Opening document…',
+'无法更新窗口保存状态，请先保存文档再关闭。':'Could not update window state. Save the document before closing.',
+'有未保存的修改':'Unsaved changes','请检查文件是否损坏或加密。':'Check whether the file is damaged or encrypted.',
+'文档处理失败：':'Document error: ','文档处理失败':'Document error','示例文档 · 可自由编辑':'Sample document · Ready to edit','文档已打开':'Document opened',
+'编辑器未返回 DOCX 文件。':'The editor did not return a DOCX file.','无法读取文档分节。':'Could not read document sections.','未命名.docx':'Untitled.docx',
+'请先选中文字，再设置中西文字体。可在正文中按 ⌘/Ctrl A 全选。':'Select text before setting Chinese and Western fonts. Use ⌘/Ctrl A in the document to select all.',
+'已设置中西文字体 · 请保存文档':'Fonts applied · Save your document','文档有未保存的修改。继续将丢弃修改，是否继续？':'Discard unsaved changes and continue?',
+'仅支持 .docx。旧版 .doc 请先用 Word 或 LibreOffice 转换。':'Only .docx is supported. Convert legacy .doc files using Word or LibreOffice first.',
+'请选择非空且小于 50 MB 的 DOCX 文件。':'Choose a nonempty DOCX file smaller than 50 MB.','正在保存…':'Saving…','已取消保存':'Save cancelled',
+'已保存先前版本 · 有新的修改':'Earlier version saved · New changes remain','已保存到本地':'Saved locally','已导出 DOCX':'DOCX exported','保存失败 · 修改仍保留在编辑器中':'Save failed · Changes remain in the editor',
+'请先选中需要批注的文字，再点击“添加批注”。':'Select text first, then choose Add comment.','无法读取文字选区：':'Could not read selection: ',
+'无法添加批注，请重新选择文字。':'Could not add comment. Select the text again.','文档工作台':'Document workspace','新建空白文档 · ⌘/Ctrl N':'New document · ⌘/Ctrl N','新建空白文档':'New document',
+'打开文档':'Open','内置示例':'Sample','WORD 文档':'Word document','文档模式':'Document mode','查看':'View','编辑':'Edit','修订':'Track changes','添加批注':'Add comment','处理中…':'Working…','保存':'Save',
+'另存为 · ⌘/Ctrl Shift S':'Save as · ⌘/Ctrl Shift S','另存为':'Save as','关闭错误提示':'Dismiss error','中西文字体':'Chinese & Western fonts','审阅修订 ':'Review changes ','审阅修订':'Review changes',
+'页面设置':'Page setup','设置':'Settings','修订模式：修改会保留作者和变更记录':'Tracking: edits retain their author and review history','只读查看':'Read only','编辑模式':'Editing',
+' 处修订':' changes','上一处':'Previous','下一处':'Next','全部接受':'Accept all','全部拒绝':'Reject all','关闭审阅':'Close review',
+'暂无待处理修订。在“修订”模式下编辑即可记录变更。':'No pending changes. Edit in Track changes mode to record revisions.','未知作者':'Unknown author','插入':'Insertion','删除':'Deletion','格式修改':'Formatting','点击定位修订':'Locate change',
+'接受':'Accept','拒绝':'Reject','离线模式':'Offline','本地浏览器处理':'Processed locally','取消批注':'Cancel comment','批注将关联到所选文字，并随文档保存。':'This comment is anchored to the selected text and saved with the document.',
+'批注内容':'Comment text','写下你的想法…':'Write a comment…','取消':'Cancel','关闭字体设置':'Close font settings','所选文字：':'Selected text: ','中文字体':'Chinese font','西文字体':'Western font',
+'保持不变，例如 SimSun':'Keep unchanged, e.g. SimSun','保持不变，例如 Times New Roman':'Keep unchanged, e.g. Times New Roman',
+'留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。':'Leave blank to keep the existing setting. Font names are saved in DOCX. Fonts missing on this device use a display fallback.','应用字体':'Apply fonts',
+'关闭设置':'Close settings','界面语言':'Interface language','批注与修订作者':'Comment and revision author','应用设置':'Apply settings',
+'设置保存在本机。应用设置会保留文档内容和未保存状态，并重新加载编辑器；撤销历史将重置。':'Settings are stored locally. Applying reloads the editor while preserving document content and unsaved changes. Undo history is reset.',
+'关闭页面设置':'Close page setup','应用到分节':'Apply to section','纸张':'Paper size','方向':'Orientation','纵向':'Portrait','横向':'Landscape','应用页面设置':'Apply page setup',
+'页边距可通过文档上方标尺调整。页面设置直接应用到所选分节。':'Adjust margins using the ruler above the document. Page setup applies directly to the selected section.',
+'请选择小于 20 MB 的 PNG 或 JPEG 图片。':'Choose a PNG or JPEG image smaller than 20 MB.','仅支持 PNG 或 JPEG 图片。':'Only PNG and JPEG images are supported.','无法读取图片。':'Could not read image.',
+'编辑器未能完成操作，请检查选区和文档模式。':'The operation could not be completed. Check the selection and document mode.',
+};
+const ZH = Object.fromEntries(Object.entries(EN).map(([zh,en])=>[en,zh]));
+let language = initialLanguage();
+export const getLanguage = () => language;
+export function setLanguage(value) { language = value === 'en' ? 'en' : 'zh'; localStorage.setItem('superdocx.language', language); }
+export function t(value) { if (typeof value !== 'string') return value; value = value.replace(/^Error invoking remote method '[^']+': Error: /, ''); return language === 'en' ? (EN[value] || value) : (ZH[value] || value); }

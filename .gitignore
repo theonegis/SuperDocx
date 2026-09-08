@@ -1,0 +1,26 @@
+# Dependencies and generated applications
+node_modules/
+dist/
+release/
+
+# Test output, screenshots and temporary documents
+artifacts/
+coverage/
+playwright-report/
+test-results/
+*.log
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local tools and operating-system metadata
+.firecrawl/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

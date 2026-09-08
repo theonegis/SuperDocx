@@ -1,0 +1,31 @@
+import { editAndComment } from './workflow.mjs';
+import JSZip from 'jszip';
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { chromium } from '@playwright/test';
+import { createServer } from 'vite';
+import { mkdir } from 'node:fs/promises';
+await mkdir('artifacts', { recursive: true });
+const server = await createServer({ server: { host: '127.0.0.1', port: 5173 } });
+await server.listen();
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+page.on('console', m => { if(m.type() === 'error') console.log('CONSOLE', m.text().slice(0,1500)); });
+page.on('pageerror', e => console.log('PAGEERROR', e.message));
+try {
+ await page.goto('http://127.0.0.1:5173');
+ await page.waitForFunction(() => !document.querySelector('.save-button')?.disabled, {timeout:60000});
+ await editAndComment(page);
+ const downloadReady = page.waitForEvent('download');
+ await page.getByRole('button', {name:'保存', exact:true}).click();
+ const download = await downloadReady;
+ await download.saveAs('artifacts/browser-roundtrip.docx');
+ const zip = await JSZip.loadAsync(await readFile('artifacts/browser-roundtrip.docx'));
+ assert.match(await zip.file('word/document.xml').async('string'), /OFFLINE_EDIT_2026/);
+ assert.match(await zip.file('word/comments.xml').async('string'), /离线批注验证/);
+ await page.locator('input[type=file]').setInputFiles('artifacts/browser-roundtrip.docx');
+ await page.waitForFunction(() => !document.querySelector('.save-button')?.disabled, {timeout:60000});
+ await page.getByText('离线批注验证：请核对标题。', {exact:true}).waitFor();
+ await page.screenshot({path:'artifacts/browser.png'});
+ console.log('PASS: browser text edit, selection comment, export XML, reopen');
+} finally { await browser.close(); await server.close(); }
