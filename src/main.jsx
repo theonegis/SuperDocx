@@ -6,6 +6,8 @@ import 'superdoc/style.css';
 import './styles.css';
 import './ribbon.css';
 import { OutlinePanel } from './OutlinePanel';
+import { prepareDocumentFonts } from './local-fonts';
+import { FontStatus } from './FontStatus';
 import { WordCount } from './WordCount';
 import { ZoomControls } from './ZoomControls';
 import { NoticeDialog } from './NoticeDialog';
@@ -124,6 +126,8 @@ function App({ initialSource }) {
     (async () => {
       try {
         const file = typeof source.file === 'string' ? await (await fetch(source.file)).blob() : source.file;
+        await prepareDocumentFonts(file);
+        if(cancelled)return;
         await editor.current.replaceFile(file);
         if (cancelled) return;
         revision.current = 0; savedRevision.current = source.resumeDirty ? -1 : 0;
@@ -183,9 +187,28 @@ function App({ initialSource }) {
     if (!readyRef.current || mode === 'viewing') return;
     try {
       const instance = editor.current;
-      const capture = await instance.activeEditor.doc.selection.current({ includeText: true });
+      let capture = await instance.activeEditor.doc.selection.current({ includeText: true });
       if (instance !== editor.current) return;
-      if (capture.empty || !capture.selectionTarget) throw new Error(t("请先选中文字，再设置中西文字体。可在正文中按 ⌘/Ctrl A 全选。"));
+      if (capture.empty || !capture.selectionTarget) {
+        const doc=instance.activeEditor.doc;
+        let firstBlock,lastBlock,offset=0;
+        for(;;){
+          const page=await doc.find({select:{type:'node',kind:'block'},limit:250,offset});
+          for(const item of page.items){if(['paragraph','heading','listItem'].includes(item.address.nodeType)){firstBlock??=item.address;lastBlock=item.address;}}
+          offset+=page.items.length;if(!page.items.length||offset>=page.total)break;
+        }
+        if(firstBlock){
+          const tail=await doc.query.match({select:{type:'text',mode:'regex',pattern:'[\\s\\S]+'},within:lastBlock,limit:1});
+          const target={kind:'selection',start:{kind:'text',blockId:firstBlock.nodeId,offset:0},end:tail.items[0]?.target.end||{kind:'text',blockId:lastBlock.nodeId,offset:0}};
+          const result=await instance.activeEditor.authoring.setSelectionTarget({target,focus:true});
+          if(!result.ok)throw new Error(t('无法选择文档正文，请重试。'));
+          capture={...await doc.selection.current({includeText:true}),selectionTarget:target,wholeDocument:true};
+        }else{
+          await instance.activeEditor.authoring.focusEditable();
+          capture={...await doc.selection.current({includeText:true}),wholeDocument:true};
+        }
+      }
+      if(instance!==editor.current)return;
       setUnifiedFont(''); setEastFont(''); setWestFont(''); setError(''); setFontDialog(capture);
     } catch (cause) { setError(cause.message); }
   }
@@ -355,12 +378,12 @@ function App({ initialSource }) {
             <label className="review-picker-field"><LocateFixed size={16}/><select className="review-picker" aria-label={t("定位修订")} value="" disabled={!review.total} onChange={event=>editor.current.ui.trackChanges.scrollTo(event.target.value)}><option value="">{t("定位修订")}</option>{review.items.map(item=><option key={item.id} value={item.id}>{item.author || t("未知作者")} · {item.insertedText || item.deletedText || item.formattingDeltaSummary || t('点击定位修订')}</option>)}</select></label>
             </div>}
           </div><div className="document-stage">{outlineOpen && <OutlinePanel editor={editor} ready={ready} close={()=>setOutlineOpen(false)}/>}<div className="document-scroll">{!ready && <div className="loading-overlay"><span className="loading-spinner"/>{t("正在打开文档…")}</div>}<div id="document-editor"/></div></div></div>
-        <footer className="status-bar"><div className="status-left"><button className="zoom-button outline-toggle" aria-label={t("文档大纲")} title={t("文档大纲")} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={()=>setOutlineOpen(value=>!value)}><ListTree size={16}/></button><WordCount editor={editor} ready={ready}/><span role="status">{dirty ? <Circle size={9} fill="currentColor"/> : <Check size={14}/>} {t(status)}</span></div><div className="status-right"><span className="local-status"><ShieldCheck size={14}/> {desktop ? t("本地文档") : t("本地浏览器处理")}</span><ZoomControls editor={editor} ready={ready && !busy}/></div></footer>
+        <footer className="status-bar"><div className="status-left"><button className="zoom-button outline-toggle" aria-label={t("文档大纲")} title={t("文档大纲")} aria-expanded={outlineOpen} aria-controls="document-outline" onClick={()=>setOutlineOpen(value=>!value)}><ListTree size={16}/></button><WordCount editor={editor} ready={ready}/><span role="status">{dirty ? <Circle size={9} fill="currentColor"/> : <Check size={14}/>} {t(status)}</span></div><div className="status-right"><FontStatus editor={editor} ready={ready} show={setError}/><span className="local-status"><ShieldCheck size={14}/> {desktop ? t("本地文档") : t("本地浏览器处理")}</span><ZoomControls editor={editor} ready={ready && !busy}/></div></footer>
       </section>
     </main>
     {comment && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("添加批注")} onSubmit={postComment}><div className="modal-heading"><h2>{t("添加批注")}</h2><button type="button" className="icon-button" aria-label={t("取消批注")} disabled={posting} onClick={() => setComment(null)}><X size={18}/></button></div><p>{t("批注将关联到所选文字，并随文档保存。")}</p><textarea aria-label={t("批注内容")} autoFocus value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder={t("写下你的想法…")} rows={5}/><div className="modal-actions"><button type="button" className="secondary-button" disabled={posting} onClick={() => setComment(null)}>{t("取消")}</button><button className="primary-button" disabled={!commentText.trim() || posting}>{t("添加批注")}<ArrowUpRight size={16}/></button></div></form></div>}
 
-    {fontDialog && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("字体设置")} onSubmit={applyFonts}><div className="modal-heading"><h2>{t("字体设置")}</h2><button type="button" className="icon-button" aria-label={t("关闭字体设置")} disabled={operation} onClick={() => setFontDialog(null)}><X size={18}/></button></div><p className="selection-preview">{t("所选文字：")}{fontDialog.text?.slice(0, 100)}</p><label className="field-label">{t("统一字体")}<input autoFocus aria-label={t("统一字体")} list="font-options" maxLength={100} placeholder={t("保持不变")} value={unifiedFont} onChange={event => setUnifiedFont(event.target.value)}/></label><p>{t("如需分别设置，可填写以下两项；它们优先于统一字体。")}</p><label className="field-label">{t("中文字体")}<input aria-label={t("中文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 SimSun")} value={eastFont} onChange={event => setEastFont(event.target.value)}/></label><label className="field-label">{t("西文字体")}<input aria-label={t("西文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 Times New Roman")} value={westFont} onChange={event => setWestFont(event.target.value)}/></label><datalist id="font-options">{FONT_OPTIONS.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</datalist><p>{t("留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。")}</p><div className="modal-actions"><button type="button" className="secondary-button" disabled={operation} onClick={() => setFontDialog(null)}>{t("取消")}</button><button className="primary-button" disabled={operation || (!unifiedFont.trim() && !eastFont.trim() && !westFont.trim())}>{t("应用字体")}</button></div></form></div>}
+    {fontDialog && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("字体设置")} onSubmit={applyFonts}><div className="modal-heading"><h2>{t("字体设置")}</h2><button type="button" className="icon-button" aria-label={t("关闭字体设置")} disabled={operation} onClick={() => setFontDialog(null)}><X size={18}/></button></div><p className="selection-preview">{fontDialog.wholeDocument?t('应用范围：全部正文'):t("所选文字：")}{!fontDialog.wholeDocument&&fontDialog.text?.slice(0, 100)}</p><label className="field-label">{t("统一字体")}<input autoFocus aria-label={t("统一字体")} list="font-options" maxLength={100} placeholder={t("保持不变")} value={unifiedFont} onChange={event => setUnifiedFont(event.target.value)}/></label><p>{t("如需分别设置，可填写以下两项；它们优先于统一字体。")}</p><label className="field-label">{t("中文字体")}<input aria-label={t("中文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 SimSun")} value={eastFont} onChange={event => setEastFont(event.target.value)}/></label><label className="field-label">{t("西文字体")}<input aria-label={t("西文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 Times New Roman")} value={westFont} onChange={event => setWestFont(event.target.value)}/></label><datalist id="font-options">{FONT_OPTIONS.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</datalist><p>{t("留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。")}</p><div className="modal-actions"><button type="button" className="secondary-button" disabled={operation} onClick={() => setFontDialog(null)}>{t("取消")}</button><button className="primary-button" disabled={operation || (!unifiedFont.trim() && !eastFont.trim() && !westFont.trim())}>{t("应用字体")}</button></div></form></div>}
     {references && <ReferencesDialog doc={editor.current.activeEditor.doc} capture={references.capture} close={()=>setReferences(null)} insert={insertReference}/>}
     {error && <NoticeDialog message={error} close={()=>setError('')}/>}
     {settings && <SettingsDialog language={chosenLanguage} setLanguage={setChosenLanguage} author={chosenAuthor} setAuthor={setChosenAuthor} busy={busy} close={() => setSettings(false)} submit={applySettings}/>}
@@ -368,4 +391,5 @@ function App({ initialSource }) {
   </div>;
 }
 const initialSource = await sessionHandoff('get').catch(() => null);
+await prepareDocumentFonts(initialSource?.file || './welcome.docx').catch(console.warn);
 createRoot(document.getElementById('root')).render(<App initialSource={initialSource}/>);

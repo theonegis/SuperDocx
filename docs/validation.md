@@ -107,3 +107,11 @@ SUPERDOCX_TEST_EXECUTABLE="$PWD/release/mac-arm64/SuperDocx.app/Contents/MacOS/S
 ## 0.3.4 系统默认设置（2026-09-08）
 
 首次启动通过受限 IPC 读取 `os.userInfo().username` 和 Electron 系统首选语言。中文语言标签（含 zh-CN、zh-TW）默认中文，其余默认英文；已保存偏好优先。验证了真实 OS 用户名、中文／英文／法文系统语言映射，以及手动作者与界面语言在重载后保持。
+
+### 0.3.5 本机字体替代
+
+- `tests/local-fonts.mjs` 在 macOS Electron 中通过：以 CDP `CSS.getPlatformFontsForNode` 检查真实字形字体，宋体→Songti SC、黑体→Heiti SC、楷体→Kaiti SC；三种虚构缺失字体按 DOCX family 元数据分别使用 Songti SC、PingFang SC、Menlo。验证底部替代提示及另存后的原字体名称。
+- `tests/font-category.test.cjs` 通过：family、fixed pitch、PANOSE、常见字体名以及未知类别判定。完整单元测试 5 项通过；生产构建通过。
+- 没有捆绑或下载系统字体。Linux/Windows 候选字体路径尚未在对应系统实际验证；用户截图对应的原始 DOCX 尚未取得。
+- 独立中文 `eastAsia` 的引擎渲染限制见 offline-features.md，未将保存字段正确误报为字形显示正确。
+- `tests/features.mjs` 新增无选区字体设置测试：直接打开设置，显示「应用范围：全部正文」，逐条检查导出正文文字运行的 `w:ascii="SimSun"`；随后已有选区字体设置、保存重开、修订接受/拒绝、页面、中英文和窄窗口回归全部通过。

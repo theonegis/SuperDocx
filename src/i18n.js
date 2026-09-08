@@ -1,5 +1,6 @@
 import { initialLanguage } from './preferences';
 const EN = {
+'应用范围：全部正文':'Applies to: entire document body', '无法选择文档正文，请重试。':'Could not select the document body. Please try again.', '替代显示':'substitute','未安装或不可用':'missing or unavailable','字体替代':'Font substitution','显示使用替代字体，DOCX 中的字体名称保持不变。要与原文档一致，请在系统中安装对应字体后重启应用。':'Substitute fonts are used for display. Font names in the DOCX are unchanged. Install the original fonts on your system and restart the app for faithful rendering.',
 '文档大纲':'Document outline','关闭大纲':'Close outline','标题导航':'Heading navigation','正在读取大纲…':'Loading outline…','暂无标题。在正文应用标题样式后，将显示在这里。':'No headings yet. Apply a heading style to text to show it here.','无法读取文档大纲':'Could not read the document outline','无法定位此标题，请重试':'Could not locate this heading. Try again.',
 '字':'words','正文统计：中文按字，英文和数字按词；不计空白和标点。':'Body text: Chinese characters and English/number words; excludes whitespace and punctuation.',
 '文档缩放':'Document zoom','Ctrl／⌘＋滚轮或触控板捏合缩放':'Ctrl/⌘ + mouse wheel or trackpad pinch to zoom','缩小文档':'Zoom out','放大文档':'Zoom in','重置缩放至 100%':'Reset zoom to 100%',

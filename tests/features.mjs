@@ -27,6 +27,18 @@ try {
  await app.evaluate(({dialog}, file)=> { dialog.showSaveDialog=async()=>({canceled:false,filePath:file}); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]}); dialog.showMessageBox=async()=>({response:1}); },save);
  await writeFile('artifacts/toolbar.html', await page.locator('#document-toolbar').innerHTML());
 
+ // A caret-only selection automatically targets the entire body.
+ await page.getByText('一份文档，无限可能。',{exact:true}).click();
+ await page.getByRole('button',{name:'字体设置',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'字体设置'})).toContainText('应用范围：全部正文');
+ await expect(page.getByRole('alertdialog')).toHaveCount(0);
+ await page.getByLabel('统一字体',{exact:true}).fill('SimSun');
+ await page.getByRole('button',{name:'应用字体'}).click();
+ const wholeZip=await saveFile();
+ const wholeXml=await wholeZip.file('word/document.xml').async('string');
+ const textRuns=[...wholeXml.matchAll(/<w:r[ >][\s\S]*?<\/w:r>/g)].map(match=>match[0]).filter(run=>/<w:t[ >]/.test(run));
+ assert.ok(textRuns.length>10);
+ for(const run of textRuns)assert.match(run,/w:ascii="SimSun"/,'Every body text run receives the chosen font');
  await selectText('一份文档，无限可能。');
  await page.getByRole('button',{name:'字体设置',exact:true}).click();
  await page.getByLabel('中文字体',{exact:true}).fill('Songti SC');

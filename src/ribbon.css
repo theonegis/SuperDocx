@@ -151,3 +151,6 @@
 .outline-item { border:0; background:transparent; border-radius:6px; text-align:left; padding:9px 8px 9px calc(8px + var(--heading-level)*12px); color:#526078; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
 .outline-item:hover,.outline-item[aria-current] { background:#eef3ff; color:#315de3; }
 .outline-toggle[aria-expanded="true"] { background:#eef3ff; color:#315de3; }
+.font-status { display:flex; gap:5px; align-items:center; border:0; border-radius:5px; background:transparent; color:#987227; padding:4px 6px; font-size:10px; white-space:nowrap; }
+.font-status:hover { background:#fff6e1; }
+.notice-modal #notice-message { white-space:pre-line; }

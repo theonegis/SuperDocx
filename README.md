@@ -66,6 +66,6 @@ npm start
 
 ## 许可
 
-本项目沿用仓库已有的 [GPLv3 许可](LICENSE)。第三方依赖遵循各自的许可。SuperDoc 的编辑器代码采用 AGPLv3，另有商业许可；2.12.0 实际依赖的 `@superdoc/docx-engine@0.11.0` 则使用单独的专有许可，不能将整个依赖栈视为纯 AGPL。分发产品前，应同时核对编辑器和引擎条款；闭源、商业用途和向第三方分发应用需要确认相应授权范围与离线条款。配置 `licenseKey` 或关闭遥测均不等于获得商业授权。本项目未使用 SuperDoc 官方标志，也不代表官方客户端。
+本项目使用 GPLv3 许可 (LICENSE)。第三方依赖遵循各自的许可。SuperDoc 的编辑器代码采用 AGPLv3，另有商业许可；2.12.0 实际依赖的 `@superdoc/docx-engine@0.11.0` 则使用单独的专有许可，不能将整个依赖栈视为纯 AGPL。分发产品前，应同时核对编辑器和引擎条款；闭源、商业用途和向第三方分发应用需要确认相应授权范围与离线条款。配置 `licenseKey` 或关闭遥测均不等于获得商业授权。本项目未使用 SuperDoc 官方标志，也不代表官方客户端。
 
 官方来源：[项目](https://github.com/superdoc/docx-editor)、[文档](https://docs.superdoc.dev/editor/quickstart/)、[编辑器许可](https://docs.superdoc.dev/resources/license/)、[DOCX Engine 专有许可](https://docs.superdoc.dev/resources/docx-engine-license/)。
