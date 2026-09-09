@@ -32,11 +32,28 @@ npm start
 | `npm run dev` | 浏览器开发预览 |
 | `npm run build` | 构建前端 |
 | `npm run pack` | 构建当前平台的应用目录，输出至 `release/` |
+| `npm run package:linux` | 产出 Linux 安装包（`deb` + `rpm`），输出至 `release/` |
 | `npm test` | 文件读写保护与 Zotero 接口单元测试 |
 | `npm run test:e2e` | Electron 文档编辑、批注、保存与重开测试 |
 | `npm run test:features` | 字体、修订、页面设置、双语、图片与表格测试 |
 | `npm run test:references` | 基础引用及 DOCX 保存重开测试 |
 | `node tests/zoom.mjs` | 状态栏缩放、字数和大纲导航测试 |
+
+### 本机离线打包
+
+```sh
+# 先准备依赖
+npm ci
+
+# 生成 Linux .deb / .rpm（离线安装包）
+npm run package:linux
+```
+
+生成文件位于 `release/` 下（需要联网环境重新执行 `npm ci`，之后即可在当前机器打包，无需额外联网运行应用）。 
+
+### GitHub Action
+
+仓库已新增 `.github/workflows/build-linux-packages.yml`，`push` 到 `main` 或 `v*` 标签时会自动触发 Linux 打包，并将 `release/*.deb` 与 `release/*.rpm` 上传为 Action Artifact。 
 
 界面测试需要图形环境，截图与测试文档写入 `artifacts/`。直接运行界面测试前请先创建该目录并执行 `npm run build`。依赖、构建产物、安装包、测试文档和本地密钥不提交到仓库。
 

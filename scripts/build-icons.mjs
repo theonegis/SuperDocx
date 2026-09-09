@@ -1,24 +1,76 @@
-// Run on macOS: convert the approved artwork into native desktop icon formats.
-import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+// Convert the approved artwork into native desktop icon formats.
+import { execSync } from 'node:child_process';
+import { mkdir, readFile, writeFile, rm, copyFile } from 'node:fs/promises';
+
+const sourceIcon = 'build/icon-source.png';
 const directory = 'build/app.iconset';
+const linuxBaseIcon = 'build/icon-linux-rounded.png';
+const isMac = process.platform === 'darwin';
+
+function run(command) {
+  execSync(command, { stdio: 'inherit' });
+}
+
+function runOrFalse(command) {
+  try {
+    run(command);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resize(source, target, size) {
+  const dimensions = `${size}x${size}`;
+  if (isMac && runOrFalse(`sips -z ${size} ${size} "${source}" --out "${target}"`)) {
+    return;
+  }
+  if (runOrFalse(`magick "${source}" -resize ${dimensions} "${target}"`)) {
+    return;
+  }
+  if (!runOrFalse(`convert "${source}" -resize ${dimensions} "${target}"`)) {
+    throw new Error('No image tool found. Install ImageMagick (magick/convert) or run on macOS with sips.');
+  }
+}
+
+function buildRoundedIcon(source, target, size) {
+  const radius = Math.round(size * 0.12);
+  const mask = `roundrectangle 0,0 ${size},${size} ${radius},${radius}`;
+  const roundCommand = `magick "${source}" \\( -size ${size}x${size} xc:none -fill white -draw "${mask}" \\) -compose DstIn -composite "${target}"`;
+  if (runOrFalse(roundCommand)) {
+    return;
+  }
+  const fallbackCommand = `convert "${source}" \\( -size ${size}x${size} xc:none -fill white -draw "${mask}" \\) -compose DstIn -composite "${target}"`;
+  if (!runOrFalse(fallbackCommand)) {
+    throw new Error('No image tool found. Install ImageMagick (magick/convert) or run on macOS with sips.');
+  }
+}
+
 await mkdir(directory, { recursive: true });
-execFileSync('sips', ['-z', '1024', '1024', 'build/icon-source.png', '--out', 'build/icon.png']);
+await copyFile(sourceIcon, 'build/icon.png');
+buildRoundedIcon('build/icon.png', linuxBaseIcon, 1024);
+await copyFile(linuxBaseIcon, 'build/icon.png');
+
 for (const size of [16, 32, 128, 256, 512]) {
   for (const scale of [1, 2]) {
     const pixels = size * scale;
     const file = `${directory}/icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`;
-    execFileSync('sips', ['-z', String(pixels), String(pixels), 'build/icon.png', '--out', file]);
+    resize('build/icon.png', file, pixels);
   }
 }
-execFileSync('iconutil', ['-c', 'icns', directory, '-o', 'build/icon.icns']);
+
+if (isMac) {
+  runOrFalse('iconutil -c icns build/app.iconset -o build/icon.icns');
+}
+
 const sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
 const images = [];
 for (const size of sizes) {
   const file = `${directory}/windows-${size}.png`;
-  execFileSync('sips', ['-z', String(size), String(size), 'build/icon.png', '--out', file]);
+  resize('build/icon.png', file, size);
   images.push(await readFile(file));
 }
+
 const header = Buffer.alloc(6 + sizes.length * 16);
 header.writeUInt16LE(1, 2);
 header.writeUInt16LE(sizes.length, 4);
@@ -33,10 +85,10 @@ sizes.forEach((size, index) => {
   offset += images[index].length;
 });
 await writeFile('build/icon.ico', Buffer.concat([header, ...images]));
-execFileSync('sips', ['-z', '64', '64', 'build/icon.png', '--out', 'public/favicon.png']);
+resize('build/icon.png', 'public/favicon.png', 64);
 await mkdir('build/icons', { recursive: true });
 for (const size of [16, 24, 32, 48, 64, 96, 128, 256, 512, 1024]) {
-  execFileSync('sips', ['-z', String(size), String(size), 'build/icon.png', '--out', `build/icons/${size}x${size}.png`]);
+  resize('build/icon.png', `build/icons/${size}x${size}.png`, size);
 }
 await rm(directory, { recursive: true, force: true });
 console.log('Created PNG, ICNS, ICO and favicon assets.');

@@ -1,0 +1,36 @@
+name: Build Linux Installer Packages
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux-packages:
+    name: Build Debian and RPM packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Build Linux packages
+        run: npm run package:linux
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: superdocx-linux-packages
+          path: release/*.{deb,rpm}

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
+  "desktopName": "superdocx-desktop",
+  "author": {
+    "name": "Victor Tan",
+    "email": "614106917@qq.com"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
@@ -14,7 +19,8 @@
     "test:browser": "node tests/browser-smoke.mjs",
     "icons": "node scripts/build-icons.mjs",
     "test:features": "npm run build && node tests/features.mjs && node tests/rich-editing.mjs",
-    "test:references": "node tests/citations.mjs && node tests/references-ui.mjs"
+    "test:references": "node tests/citations.mjs && node tests/references-ui.mjs",
+    "package:linux": "npm run build && electron-builder --linux deb rpm --publish=never"
   },
   "build": {
     "appId": "dev.superdocx.desktop",
@@ -47,7 +53,9 @@
     },
     "linux": {
       "icon": "build/icons",
-      "category": "Office"
+      "category": "Office",
+      "syncDesktopName": true,
+      "maintainer": "Victor Tan <614106917@qq.com>"
     }
   },
   "dependencies": {
