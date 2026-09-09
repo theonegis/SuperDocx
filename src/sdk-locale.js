@@ -7,7 +7,7 @@ const ZH = {
   'Accept tracked changes':'接受所选修订','Reject tracked changes':'拒绝所选修订',
   'Zoom':'缩放','Font family':'字体','Font family options':'字体选项','Font size':'字号','Font size options':'字号选项',
   'Bold':'加粗','Italic':'斜体','Underline':'下划线','Strikethrough':'删除线','Color':'文字颜色','Highlight':'突出显示',
-  'Link dropdown':'插入链接','Image':'插入本地图片','Table of contents':'目录','Table':'插入表格','Table actions':'表格操作',
+  'Link dropdown':'链接','Image':'插入本地图片','Table of contents':'目录','Table':'插入表格','Table actions':'表格操作',
   'Text align':'对齐','Bullet list':'项目符号','Bullet list options':'项目符号选项','Numbered list':'编号','Numbered list options':'编号选项',
   'Left indent':'减少缩进','Right indent':'增加缩进','Line height':'行距','Ruler':'标尺','Overflow items':'更多工具','Search':'查找与替换',
   'Measurement unit':'度量单位','Linked styles':'样式','Formatting marks':'格式标记','Copy formatting':'格式刷','Clear formatting':'清除格式',
@@ -21,7 +21,21 @@ const ZH = {
   'Apply':'应用','Insert':'插入','Remove link':'移除链接','Edit link':'编辑链接','Open link':'打开链接','Text':'文字','URL':'网址',
   'Left':'左对齐','Center':'居中','Right':'右对齐','Justify':'两端对齐','Normal':'正文','No Spacing':'无间距',
 };
-export const sdkText = text => getLanguage() === 'zh' ? (ZH[text] || text) : text;
+const EN = {
+  'Accept tracked changes':'Accept changes',
+  'Reject tracked changes':'Reject changes',
+  'Link dropdown':'Link',
+};
+const getLocaleDict = () => {
+  const lang = getLanguage();
+  if (lang === 'zh') return ZH;
+  if (lang === 'en') return EN;
+  return null;
+};
+export const sdkText = text => {
+  const dict = getLocaleDict();
+  return dict?.[text] || text;
+};
 export const contextMenu = { menuProvider: (_context, sections) => sections.map(section => ({ ...section, items: section.items.map(item => ({ ...item, label: sdkText(item.label) })) })) };
 export const searchStrings = () => getLanguage() === 'zh' ? {
   findPlaceholder:'查找',findAriaLabel:'查找',replacePlaceholder:'替换为',replaceAriaLabel:'替换为',noResults:'无匹配结果',
@@ -31,7 +45,8 @@ export const searchStrings = () => getLanguage() === 'zh' ? {
 } : {};
 
 export function localizeSdkChrome() {
-  if (getLanguage() !== 'zh') return () => {};
+  const dict = getLocaleDict();
+  if (!dict) return () => {};
   const attributes = '.superdoc-toolbar [aria-label], [data-sd-part="toolbar-item"], .sd-font-combobox [aria-label], .comments-dialog button, .comments-dialog textarea, .comments-dialog input, .sd-surface button, .sd-surface input';
   const labels = '.sd-tooltip-content, .comments-dialog button, .comments-dropdown__item, .toolbar-dropdown button, .sd-surface button, .sd-surface label';
   let queued = false;
@@ -40,12 +55,12 @@ export function localizeSdkChrome() {
     for (const el of document.querySelectorAll(attributes)) {
       for (const attribute of ['aria-label','title','placeholder']) {
         const value = el.getAttribute(attribute);
-        if (value && ZH[value]) el.setAttribute(attribute, ZH[value]);
+        if (value && dict[value]) el.setAttribute(attribute, dict[value]);
       }
     }
     for (const el of document.querySelectorAll(labels)) {
       // Only direct literal label nodes; no traversal into user-authored content.
-      for (const node of el.childNodes) if (node.nodeType === Node.TEXT_NODE && ZH[node.textContent.trim()]) node.textContent = ZH[node.textContent.trim()];
+      for (const node of el.childNodes) if (node.nodeType === Node.TEXT_NODE && dict[node.textContent.trim()]) node.textContent = dict[node.textContent.trim()];
     }
   };
   const observer = new MutationObserver(() => { if (!queued) { queued = true; queueMicrotask(scan); } });

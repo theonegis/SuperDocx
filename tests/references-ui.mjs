@@ -1,3 +1,4 @@
+import { useTestLanguage } from './test-language.mjs';
 import {_electron as electron,expect} from '@playwright/test';
 import {mkdtemp,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -8,7 +9,8 @@ const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
 const app=await electron.launch({executablePath:process.env.SUPERDOCX_TEST_EXECUTABLE,args:[...(process.env.SUPERDOCX_TEST_EXECUTABLE?[]:['.']),'--user-data-dir='+await mkdtemp(tmpdir()+'/superdocx-reference-ui-')],env});
 const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 const file=path.resolve('artifacts/reference-ui.docx');
-try{
+try {
+ await useTestLanguage(page);
  await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
  await page.screenshot({path:'artifacts/ribbon-home.png'});
  await app.evaluate(({ipcMain,dialog},file)=>{
@@ -34,7 +36,7 @@ try{
  await page.getByRole('button',{name:'插入或更新参考文献表'}).click();
  await page.getByRole('button',{name:'插入或更新参考文献表'}).click();
  await page.getByRole('button',{name:'保存',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('已保存到本地');
+ await expect(page.locator('.status-bar [role="status"]')).toContainText('已保存到本地');
  let zip=await JSZip.loadAsync(await readFile(file)),xml=await zip.file('word/document.xml').async('string');
  assert.match(xml,/CITATION/);assert.equal((xml.match(/BIBLIOGRAPHY/g)||[]).length,1);
  await page.getByRole('button',{name:'打开文档',exact:true}).click();

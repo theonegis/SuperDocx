@@ -1,3 +1,4 @@
+import { useTestLanguage } from './test-language.mjs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 const testProfile = await mkdtemp(tmpdir() + '/superdocx-test-');
@@ -23,22 +24,18 @@ async function saveFile() {
  return JSZip.loadAsync(await readFile(save));
 }
 try {
+ await useTestLanguage(page);
  await expect(page.getByRole('button', {name:'保存',exact:true})).toBeEnabled({timeout:60000});
  await app.evaluate(({dialog}, file)=> { dialog.showSaveDialog=async()=>({canceled:false,filePath:file}); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]}); dialog.showMessageBox=async()=>({response:1}); },save);
  await writeFile('artifacts/toolbar.html', await page.locator('#document-toolbar').innerHTML());
 
- // A caret-only selection automatically targets the entire body.
+ // A caret pick applies to subsequent input, never to the entire document.
  await page.getByText('一份文档，无限可能。',{exact:true}).click();
  await page.getByRole('button',{name:'字体设置',exact:true}).click();
- await expect(page.getByRole('dialog',{name:'字体设置'})).toContainText('应用范围：全部正文');
+ await expect(page.getByRole('dialog',{name:'字体设置'})).toContainText('应用于光标处接下来输入的文字。');
  await expect(page.getByRole('alertdialog')).toHaveCount(0);
- await page.getByLabel('统一字体',{exact:true}).fill('SimSun');
- await page.getByRole('button',{name:'应用字体'}).click();
- const wholeZip=await saveFile();
- const wholeXml=await wholeZip.file('word/document.xml').async('string');
- const textRuns=[...wholeXml.matchAll(/<w:r[ >][\s\S]*?<\/w:r>/g)].map(match=>match[0]).filter(run=>/<w:t[ >]/.test(run));
- assert.ok(textRuns.length>10);
- for(const run of textRuns)assert.match(run,/w:ascii="SimSun"/,'Every body text run receives the chosen font');
+ await page.getByRole('dialog',{name:'字体设置'}).getByRole('button',{name:'取消',exact:true}).click();
+ await expect(page.locator('.unsaved-dot')).toHaveCount(0);
  await selectText('一份文档，无限可能。');
  await page.getByRole('button',{name:'字体设置',exact:true}).click();
  await page.getByLabel('中文字体',{exact:true}).fill('Songti SC');

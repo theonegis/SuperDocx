@@ -32,8 +32,18 @@ export async function localImage(file) {
   if (!['image/png', 'image/jpeg', 'image/jpg'].includes(type)) throw new Error(t('仅支持 PNG 或 JPEG 图片。'));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
+    reader.onload = async () => {
+      try {
+        const data = String(reader.result);
+        const image = new Image();
+        image.src = data;
+        await image.decode();
+        if (!image.naturalWidth || !image.naturalHeight) throw new Error('Empty image');
+        resolve(data);
+      } catch { reject(new Error(t('无法读取图片。'))); }
+    };
     reader.onerror = () => reject(new Error(t('无法读取图片。')));
+    reader.onabort = () => reject(new Error(t('无法读取图片。')));
     reader.readAsDataURL(file.slice(0, file.size, type));
   });
 }

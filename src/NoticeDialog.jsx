@@ -11,6 +11,7 @@ export function NoticeDialog({message,close}) {
   siblings.forEach(node=>{node.inert=true});
   confirm.current.focus();
   const handler=event=>{
+   if(event.isComposing||event.keyCode===229)return;
    if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();closeRef.current();}
    else if(event.key==='Tab'){
     const buttons=[...backdrop.current.querySelectorAll('button')];

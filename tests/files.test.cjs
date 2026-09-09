@@ -27,3 +27,23 @@ test('save atomically, detect external changes, preserve existing bytes on error
     assert.deepEqual(await fs.readdir(dir), ['稿件.docx']);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
+
+test('Linux save preserves permissions, symlinks and read-only originals', { skip: process.platform === 'win32' }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'superdocx-permissions-'));
+  const file = path.join(dir, 'original.docx');
+  const link = path.join(dir, 'shortcut.docx');
+  try {
+    await fs.writeFile(file, sample);
+    await fs.chmod(file, 0o664);
+    await fs.symlink(file, link);
+    const edited = Buffer.concat([sample, Buffer.from('revision')]);
+    await atomicWrite(link, edited, digest(sample));
+    assert.equal((await fs.stat(file)).mode & 0o777, 0o664);
+    assert.equal((await fs.lstat(link)).isSymbolicLink(), true);
+    assert.deepEqual(await fs.readFile(file), edited);
+    await fs.chmod(file, 0o444);
+    await assert.rejects(atomicWrite(file, sample, digest(edited)), /只读/);
+    assert.deepEqual(await fs.readFile(file), edited);
+    assert.deepEqual((await fs.readdir(dir)).sort(), ['original.docx', 'shortcut.docx']);
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});

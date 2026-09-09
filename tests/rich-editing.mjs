@@ -1,3 +1,4 @@
+import { useTestLanguage } from './test-language.mjs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 const testProfile = await mkdtemp(tmpdir() + '/superdocx-test-');
@@ -13,6 +14,7 @@ const errors=[], remote=[];
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(/^https?:/.test(r.url()))remote.push(r.url());});
 const output=path.resolve('artifacts/rich-editing.docx');
 try {
+ await useTestLanguage(page);
  await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
  await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},output);
  await page.getByText('A LITTLE SPACE FOR BIG IDEAS',{exact:true}).click();
@@ -25,7 +27,7 @@ try {
  await page.locator('[data-item="btn-table"]').click();
  await page.locator('.toolbar-table-grid__item').nth(6).click();
  await page.getByRole('button',{name:'保存',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('已保存到本地');
+ await expect(page.locator('.status-bar [role="status"]')).toContainText('已保存到本地');
  let zip=await JSZip.loadAsync(await readFile(output));
  let xml=await zip.file('word/document.xml').async('string');
  assert.match(xml,/<w:tbl>/);assert.match(xml,/<w:drawing>/);assert.ok(Object.keys(zip.files).some(n=>n.startsWith('word/media/')));
@@ -41,7 +43,7 @@ try {
  await expect(page.locator('#document-editor')).toContainText('离线编辑');
  await page.getByLabel('关闭查找',{exact:true}).click();
  await page.getByRole('button',{name:'保存',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('已保存到本地');
+ await expect(page.locator('.status-bar [role="status"]')).toContainText('已保存到本地');
  await page.getByRole('button',{name:'打开文档',exact:true}).click();
  await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled({timeout:60000});
  await expect(page.locator('#document-editor')).toContainText('离线编辑');

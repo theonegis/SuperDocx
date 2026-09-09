@@ -10,6 +10,8 @@ import { prepareDocumentFonts } from './local-fonts';
 import { FontStatus } from './FontStatus';
 import { WordCount } from './WordCount';
 import { ZoomControls } from './ZoomControls';
+import { installHistoryShortcuts } from './history-shortcuts';
+import { readSelectionFonts, changedFontPatch, applySelectionFonts, getTypingFonts, setTypingFonts, clearTypingFonts } from './font-settings';
 import { NoticeDialog } from './NoticeDialog';
 import { ReferencesDialog } from './ReferencesDialog';
 import { insertSourceCitation, updateBibliography } from './citations';
@@ -17,6 +19,7 @@ import { FONT_OPTIONS, TOOLBAR, appToolbarItems, localImage, ensureSuccess } fro
 import { sessionHandoff } from './session';
 import { contextMenu, searchStrings, localizeSdkChrome } from './sdk-locale';
 import { SettingsDialog, PageDialog } from './SettingsDialog';
+import { readPageSettings, pageSetupPatch } from './page-settings';
 import { initialAuthor, systemDefaults } from './preferences';
 import { t, getLanguage, setLanguage } from './i18n';
 
@@ -39,8 +42,9 @@ function App({ initialSource }) {
   const savedRevision = useRef(0);
   const busyRef = useRef(false);
   const postingRef = useRef(false);
+  const decisionRef = useRef(false);
+  const composingRef = useRef(false);
   const sourceRef = useRef(null);
-  const loadedKey = useRef(initialSource?.key || 0);
   const fileInput = useRef(null);
   const [source, setSource] = useState(initialSource || { name: t("欢迎使用 SuperDocx.docx"), file: './welcome.docx', key: 0, demo: true });
   const [ready, setReady] = useState(false);
@@ -53,7 +57,6 @@ function App({ initialSource }) {
   const [commentText, setCommentText] = useState('');
   const [posting, setPosting] = useState(false);
   const [fontDialog, setFontDialog] = useState(null);
-  const [unifiedFont, setUnifiedFont] = useState('');
   const [eastFont, setEastFont] = useState('');
   const [westFont, setWestFont] = useState('');
   const [outlineOpen, setOutlineOpen] = useState(false);
@@ -97,7 +100,7 @@ function App({ initialSource }) {
           toolbar: { ...TOOLBAR, strings: language === 'zh' ? TOOLBAR.strings : {}, customItems: appToolbarItems(actions) },
           loading: false,
           ruler: true, contextMenu, contentControls: true,
-          comments: { layout: 'auto' },
+          comments: { layout: 'sidebar' },
         },
         onReady: () => {
           if (disposed) return;
@@ -115,45 +118,71 @@ function App({ initialSource }) {
         onContentError: fail, onException: fail,
       });
     } catch (cause) { fail({ error: cause }); }
-    return () => { disposed = true; stopReview?.(); readyRef.current = false; editor.current?.destroy(); editor.current = null; };
+    return () => { disposed = true; stopReview?.(); readyRef.current = false; clearTypingFonts(editor.current?.activeEditor); editor.current?.destroy(); editor.current = null; };
     // Document identity owns the editor lifetime. Mode changes use the runtime method below.
   }, [changed, updateDirty]);
-
-  useEffect(() => {
-    if (loadedKey.current === source.key || !editor.current) return;
-    loadedKey.current = source.key;
-    let cancelled = false;
-    (async () => {
-      try {
-        const file = typeof source.file === 'string' ? await (await fetch(source.file)).blob() : source.file;
-        await prepareDocumentFonts(file);
-        if(cancelled)return;
-        await editor.current.replaceFile(file);
-        if (cancelled) return;
-        revision.current = 0; savedRevision.current = source.resumeDirty ? -1 : 0;
-        readyRef.current = true; setReady(true); busyRef.current = false; setBusy(false); updateDirty(Boolean(source.resumeDirty));
-        setStatus(source.resumeDirty ? t('有未保存的修改') : t('文档已打开'));
-      } catch (cause) { if (!cancelled) { busyRef.current = false; setBusy(false); setError(cause.message); } }
-    })();
-    return () => { cancelled = true; };
-  }, [source.key, updateDirty]);
 
   useEffect(() => localizeSdkChrome(), [language]);
   useEffect(() => { if (ready) editor.current?.setDocumentMode(mode); }, [mode, ready]);
   useEffect(() => { document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'; desktop?.setLanguage(language).catch(cause => setError(cause.message)); }, [language]);
-  function replaceSource(next) {
-    busyRef.current = true; setBusy(true); readyRef.current = false; setReady(false); setTab('home'); setStatus(t('正在打开文档…')); setError('');
-    setSource(next);
+  async function replaceSource(next) {
+    const instance = editor.current;
+    const wasReady = readyRef.current;
+    const originalRevision = revision.current;
+    const originalSavedRevision = savedRevision.current;
+    let backup, replacing = false;
+    busyRef.current = true; setBusy(true); readyRef.current = false; setReady(false);
+    setStatus(t('正在打开文档…')); setError('');
+    const surface = document.getElementById('document-editor');
+    const wasInert = surface.inert;
+    surface.inert = true;
+    document.activeElement?.blur();
+    try {
+      const file = typeof next.file === 'string' ? await (await fetch(next.file)).blob() : next.file;
+      await prepareDocumentFonts(file);
+      backup = await instance.export({ exportType: ['docx'], triggerDownload: false, commentsType: 'external' });
+      if (!(backup instanceof Blob)) throw new Error(t('编辑器未返回 DOCX 文件。'));
+      await sessionHandoff('put', { ...sourceRef.current, file: backup, key: Date.now(), resumeDirty: originalRevision !== originalSavedRevision });
+      clearTypingFonts(instance.activeEditor);
+      replacing = true;
+      await instance.replaceFile(file);
+      await sessionHandoff('delete');
+      // Commit the filename/save handle only after the new content is usable.
+      sourceRef.current = next;
+      setSource(next); setTab('home');
+      revision.current = 0; savedRevision.current = next.resumeDirty ? -1 : 0;
+      readyRef.current = true; setReady(true); updateDirty(Boolean(next.resumeDirty));
+      setStatus(next.resumeDirty ? t('有未保存的修改') : t('文档已打开'));
+    } catch (cause) {
+      let recovered = !replacing;
+      if (replacing && backup) {
+        try { await instance.replaceFile(backup); recovered = true; await sessionHandoff('delete'); }
+        catch (recoveryError) { setError(cause.message + '\n' + recoveryError.message); }
+      }
+      revision.current = originalRevision; savedRevision.current = originalSavedRevision;
+      readyRef.current = recovered && wasReady; setReady(recovered && wasReady);
+      updateDirty(originalRevision !== originalSavedRevision);
+      if (recovered) setError(cause.message);
+      setStatus(t(recovered ? '文档已打开' : '文档处理失败'));
+    } finally {
+      surface.inert = wasInert;
+      busyRef.current = false; setBusy(false);
+    }
   }
   async function applySettings(event) {
     event.preventDefault();
     if (busyRef.current) return;
+    const nextAuthor = chosenAuthor.trim() || systemDefaults.username;
+    if (chosenLanguage === language && nextAuthor === author) {
+      setSettings(false);
+      return;
+    }
     busyRef.current = true; setBusy(true); setError('');
     try {
       const file = await editor.current.export({ exportType: ['docx'], triggerDownload: false, commentsType: 'external' });
       if (!(file instanceof Blob)) throw new Error(t("编辑器未返回 DOCX 文件。"));
       await sessionHandoff('put', { ...sourceRef.current, file, key: Date.now(), resumeDirty: dirty });
-      localStorage.setItem('superdocx.author', chosenAuthor.trim() || systemDefaults.username);
+      localStorage.setItem('superdocx.author', nextAuthor);
       setLanguage(chosenLanguage);
       if (desktop) await desktop.reload(); else window.location.reload();
     } catch (cause) { setError(cause.message); }
@@ -164,18 +193,26 @@ function App({ initialSource }) {
     try {
       const result = await editor.current.activeEditor.doc.sections.list({ limit: 1000 });
       if (!result.items.length) throw new Error(t("无法读取文档分节。"));
-      setSectionIndex(0); setPaper('A4'); setOrientation(result.items[0].pageSetup?.orientation || 'portrait');
+      const initial = readPageSettings(result.items[0]);
+      setSectionIndex(0); setPaper(initial.paper); setOrientation(initial.orientation);
       setPageSetup(result.items); setError('');
     } catch (cause) { setError(cause.message); }
+  }
+  function choosePageSection(index) {
+    const initial = readPageSettings(pageSetup[index]);
+    setSectionIndex(index); setPaper(initial.paper); setOrientation(initial.orientation);
   }
   async function applyPageSetup(event) {
     event.preventDefault();
     if (postingRef.current) return;
     postingRef.current = true; setOperation(true);
     try {
-      const [short, long] = paper === 'A4' ? [11906 / 1440, 16838 / 1440] : [8.5, 11];
-      ensureSuccess(await editor.current.activeEditor.doc.sections.setPageSetup({ target: pageSetup[sectionIndex].address, width: orientation === 'portrait' ? short : long, height: orientation === 'portrait' ? long : short, orientation }));
-      changed(); setPageSetup(null);
+      const patch = pageSetupPatch(pageSetup[sectionIndex], paper, orientation);
+      if (patch) {
+        ensureSuccess(await editor.current.activeEditor.doc.sections.setPageSetup({ target: pageSetup[sectionIndex].address, ...patch }));
+        changed();
+      }
+      setPageSetup(null);
     } catch (cause) { setError(cause.message); }
     finally { postingRef.current = false; setOperation(false); }
   }
@@ -183,46 +220,48 @@ function App({ initialSource }) {
     if (busyRef.current || !(await discardAllowed())) return;
     replaceSource({ name: t("未命名.docx"), file: './blank.docx', key: Date.now(), demo: false });
   }
+  const canonicalizeFontName = (value) => {
+    const raw = String(value || '').trim().replace(/^['"]|['"]$/g, '');
+    if (!raw) return '';
+    const labelMatch = FONT_OPTIONS.find(item => item.label === raw);
+    if (labelMatch) return labelMatch.value;
+    const valueMatch = FONT_OPTIONS.find(item => item.value.toLowerCase() === raw.toLowerCase());
+    if (valueMatch) return valueMatch.value;
+    return raw;
+  };
   async function beginFonts() {
-    if (!readyRef.current || mode === 'viewing') return;
+    if (!readyRef.current || busyRef.current || mode === 'viewing') return;
     try {
       const instance = editor.current;
-      let capture = await instance.activeEditor.doc.selection.current({ includeText: true });
-      if (instance !== editor.current) return;
-      if (capture.empty || !capture.selectionTarget) {
-        const doc=instance.activeEditor.doc;
-        let firstBlock,lastBlock,offset=0;
-        for(;;){
-          const page=await doc.find({select:{type:'node',kind:'block'},limit:250,offset});
-          for(const item of page.items){if(['paragraph','heading','listItem'].includes(item.address.nodeType)){firstBlock??=item.address;lastBlock=item.address;}}
-          offset+=page.items.length;if(!page.items.length||offset>=page.total)break;
-        }
-        if(firstBlock){
-          const tail=await doc.query.match({select:{type:'text',mode:'regex',pattern:'[\\s\\S]+'},within:lastBlock,limit:1});
-          const target={kind:'selection',start:{kind:'text',blockId:firstBlock.nodeId,offset:0},end:tail.items[0]?.target.end||{kind:'text',blockId:lastBlock.nodeId,offset:0}};
-          const result=await instance.activeEditor.authoring.setSelectionTarget({target,focus:true});
-          if(!result.ok)throw new Error(t('无法选择文档正文，请重试。'));
-          capture={...await doc.selection.current({includeText:true}),selectionTarget:target,wholeDocument:true};
-        }else{
-          await instance.activeEditor.authoring.focusEditable();
-          capture={...await doc.selection.current({includeText:true}),wholeDocument:true};
-        }
-      }
-      if(instance!==editor.current)return;
-      setUnifiedFont(''); setEastFont(''); setWestFont(''); setError(''); setFontDialog(capture);
+      const active = instance.activeEditor;
+      const capture = await active.doc.selection.current({ includeText: true });
+      if (!capture.selectionTarget) throw new Error(language === 'en' ? 'Place the cursor in the document first.' : '请先在文档中放置光标或选择文字。');
+
+      if (instance !== editor.current || active !== instance.activeEditor) return;
+      const initial = await readSelectionFonts(instance, capture);
+      if (instance !== editor.current || active !== instance.activeEditor) return;
+      const pending = capture.empty ? getTypingFonts(active) : {};
+      if (pending.eastAsia) initial.east = { value: pending.eastAsia, mixed: false };
+      if (pending.ascii) initial.west = { value: pending.ascii, mixed: false };
+      initial.east.value = canonicalizeFontName(initial.east.value);
+      initial.west.value = canonicalizeFontName(initial.west.value);
+      setEastFont(initial.east.value); setWestFont(initial.west.value);
+      setError(''); setFontDialog({ ...capture, initial, active });
     } catch (cause) { setError(cause.message); }
   }
   async function applyFonts(event) {
     event.preventDefault();
-    if (postingRef.current || (!unifiedFont.trim() && !eastFont.trim() && !westFont.trim())) return;
+    if (postingRef.current || mode === 'viewing') return;
+    const value = changedFontPatch(fontDialog.initial, canonicalizeFontName(eastFont), canonicalizeFontName(westFont));
+    if (!Object.keys(value).length) { setFontDialog(null); return; }
     postingRef.current = true; setOperation(true);
     try {
-      const value = {};
-      if (unifiedFont.trim()) Object.assign(value, { ascii: unifiedFont.trim(), hAnsi: unifiedFont.trim(), eastAsia: unifiedFont.trim(), asciiTheme: null, hAnsiTheme: null, eastAsiaTheme: null });
-      if (eastFont.trim()) Object.assign(value, { eastAsia: eastFont.trim(), eastAsiaTheme: null });
-      if (westFont.trim()) Object.assign(value, { ascii: westFont.trim(), hAnsi: westFont.trim(), asciiTheme: null, hAnsiTheme: null });
-      ensureSuccess(await editor.current.activeEditor.doc.format.rFonts({ target: fontDialog.selectionTarget, value }, { changeMode: mode === 'suggesting' ? 'tracked' : 'direct' }));
-      changed(); setFontDialog(null); setStatus(t("已设置中西文字体 · 请保存文档"));
+      if (editor.current.activeEditor !== fontDialog.active) throw new Error(language === 'en' ? 'The document changed. Reopen font settings.' : '文档已切换，请重新打开字体设置。');
+      ensureSuccess(await fontDialog.active.authoring.setSelectionTarget({ target: fontDialog.selectionTarget, focus: true }));
+      if (fontDialog.empty) await setTypingFonts(editor.current, value, setError, mode === 'suggesting' ? 'tracked' : 'direct');
+      else await applySelectionFonts(fontDialog.active, fontDialog.initial, value, mode === 'suggesting' ? 'tracked' : 'direct');
+      if (!fontDialog.empty) changed();
+      setFontDialog(null);
     } catch (cause) { setError(cause.message); }
     finally { postingRef.current = false; setOperation(false); }
   }
@@ -236,8 +275,16 @@ function App({ initialSource }) {
   useEffect(() => { document.title = `${dirty ? '● ' : ''}${source.name} — SuperDocx`; }, [dirty, source.name]);
 
   async function discardAllowed() {
-    if (!dirty) return true;
-    return desktop ? desktop.confirmDiscard() : window.confirm(t("文档有未保存的修改。继续将丢弃修改，是否继续？"));
+    if (busyRef.current || postingRef.current || operation || decisionRef.current || composingRef.current) return false;
+    if (revision.current === savedRevision.current) return true;
+    decisionRef.current = true;
+    try {
+      if (!desktop) return window.confirm(t("文档有未保存的修改。继续将丢弃修改，是否继续？"));
+      const choice = await desktop.confirmDiscard();
+      if (choice === 'discard') return true;
+      if (choice !== 'save') return false;
+      return await saveDocument() && revision.current === savedRevision.current;
+    } finally { decisionRef.current = false; }
   }
   async function loadBrowserFile(file) {
     if (!file) return;
@@ -252,9 +299,9 @@ function App({ initialSource }) {
     if (busyRef.current) return;
     if (!desktop) { fileInput.current.click(); return; }
     let replacing = false;
-    busyRef.current = true; setBusy(true);
     try {
       if (!(await discardAllowed())) return;
+      busyRef.current = true; setBusy(true);
       const result = await desktop.open();
       if (!result) return;
       replacing = true;
@@ -263,7 +310,7 @@ function App({ initialSource }) {
     finally { if (!replacing) { busyRef.current = false; setBusy(false); } }
   }
   async function saveDocument(saveAs = false) {
-    if (!readyRef.current || busyRef.current) return false;
+    if (!readyRef.current || busyRef.current || postingRef.current || operation || composingRef.current) return false;
     busyRef.current = true; setBusy(true); setError(''); setStatus(t("正在保存…"));
     const savingRevision = revision.current;
     const current = sourceRef.current;
@@ -314,23 +361,46 @@ function App({ initialSource }) {
   }
   async function beginReferences() {
     if (!readyRef.current || busyRef.current || mode === 'viewing') return;
-    try { setReferences({ capture: await editor.current.activeEditor.doc.selection.current({includeText:true}) }); }
+    try {
+      const active = editor.current.activeEditor;
+      const capture = await active.doc.selection.current({includeText:true});
+      if (active === editor.current.activeEditor) setReferences({ capture, active });
+    }
     catch(cause) { setError(cause.message); }
   }
   async function insertReference(item) {
-    try { await insertSourceCitation(editor.current.activeEditor.doc,references.capture.target,item); setReferences(null); }
-    finally { changed(); }
+    if (postingRef.current || busyRef.current || mode === 'viewing') return;
+    postingRef.current = true; setOperation(true);
+    try {
+      if (references.active !== editor.current.activeEditor) throw new Error(language === 'en' ? 'The document changed. Reopen the references dialog.' : '文档已切换，请重新打开引用窗口。');
+      await insertSourceCitation(references.active.doc,references.capture.target,item,changed);
+      setReferences(null);
+    } finally { postingRef.current = false; setOperation(false); }
   }
   async function bibliography() {
-    if (!readyRef.current || busyRef.current || mode === 'viewing' || operation) return;
-    setOperation(true);
-    try { await updateBibliography(editor.current.activeEditor.doc); changed(); }
+    if (!readyRef.current || busyRef.current || mode === 'viewing' || operation || postingRef.current) return;
+    postingRef.current = true; setOperation(true);
+    try { await updateBibliography(editor.current.activeEditor.doc,changed); }
     catch(cause) { setError(cause.message); }
-    finally { setOperation(false); }
+    finally { postingRef.current = false; setOperation(false); }
   }
   const actions = useRef({}); actions.current = { openDocument, saveDocument, beginComment, newDocument, beginFonts, beginPageSetup, openSettings: () => { if (!readyRef.current || busyRef.current) return; setChosenLanguage(language); setChosenAuthor(author); setSettings(true); } };
+  actions.current.discardAllowed = discardAllowed;
+  useEffect(() => desktop?.onCloseRequest?.(async token => {
+    let approved = false;
+    try {
+      if (!document.querySelector('.modal-backdrop')) approved = await actions.current.discardAllowed();
+    } catch (cause) { setError(cause.message); }
+    finally { await desktop.finishClose(token, approved); }
+  }), []);
+  useEffect(() => installHistoryShortcuts({ desktop, execute: async command => {
+    if (!readyRef.current || busyRef.current || postingRef.current || operation) return;
+    try { clearTypingFonts(editor.current.activeEditor); await editor.current.ui.commands.executeAsync(command); }
+    catch (cause) { setError(cause.message); }
+  } }), [operation]);
   useEffect(() => {
     const handler = (event) => {
+      if (event.isComposing || event.keyCode === 229 || composingRef.current) return;
       if (event.key === 'Escape' && !postingRef.current && !busyRef.current) { setComment(null); setFontDialog(null); setSettings(false); setPageSetup(null); }
       const modal = document.querySelector('.modal-backdrop');
       if (modal && event.key === 'Tab') {
@@ -347,26 +417,30 @@ function App({ initialSource }) {
       if (key === 'o') { event.preventDefault(); actions.current.openDocument(); }
     };
     const unload = (event) => { if (dirty && !desktop) { event.preventDefault(); event.returnValue = ''; } };
+    const startComposition = () => { composingRef.current = true; };
+    const endComposition = () => { composingRef.current = false; };
+    window.addEventListener('compositionstart', startComposition, true);
+    window.addEventListener('compositionend', endComposition, true);
     window.addEventListener('keydown', handler); window.addEventListener('beforeunload', unload);
-    return () => { window.removeEventListener('keydown', handler); window.removeEventListener('beforeunload', unload); };
+    return () => { window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true); window.removeEventListener('keydown', handler); window.removeEventListener('beforeunload', unload); };
   }, [dirty]);
 
   return <div className="app">
     <main className="workspace">
       <section className="editor-card" aria-label={t("文档工作台")}>
         <div className="file-bar">
-          <button className="icon-button" title={t("新建空白文档 · ⌘/Ctrl N")} aria-label={t("新建空白文档")} onClick={newDocument} disabled={busy}><FilePlus2 size={19}/></button>
+          <button className="secondary-button" title={t("新建空白文档 · ⌘/Ctrl N")} aria-label={t("新建空白文档")} onClick={newDocument} disabled={busy}><FilePlus2 size={17}/>{t("新建")}</button>
           <button className="primary-button" onClick={openDocument} disabled={busy}><FolderOpen size={18}/>{t("打开文档")}</button>
           <input ref={fileInput} type="file" accept=".docx" hidden onChange={(event) => { loadBrowserFile(event.target.files?.[0]); event.target.value = ''; }}/>
           <div className="file-info"><div className="filename" title={source.name}>{source.name}{dirty && <span className="unsaved-dot" title={t("有未保存的修改")}/>}</div><div className="file-detail">{source.demo ? t("内置示例") : t("WORD 文档")}<span>·</span>DOCX</div></div>
           <div className="file-actions">
-            <button className="secondary-button save-button" disabled={!ready || busy} onClick={() => saveDocument()}><Save size={17}/>{busy ? t("处理中…") : t("保存")}</button>
-            <button className="icon-button" title={t("另存为 · ⌘/Ctrl Shift S")} aria-label={t("另存为")} disabled={!ready || busy} onClick={() => saveDocument(true)}><Download size={19}/></button>
+            <button className="secondary-button save-button" disabled={!ready || busy || operation || posting} onClick={() => saveDocument()}><Save size={17}/>{busy ? t("处理中…") : t("保存")}</button>
+            <button className="secondary-button" title={t("另存为 · ⌘/Ctrl Shift S")} aria-label={t("另存为")} disabled={!ready || busy || operation || posting} onClick={() => saveDocument(true)}><Download size={17}/>{t("另存为")}</button>
           </div>
         </div>
         <div className="editor-shell" aria-busy={!ready}>
           <div className="ribbon-tabs" role="tablist" aria-label={t("功能区")}>
-            {Object.entries({home:'开始',insert:'插入',page:'页面',references:'引用',review:'审阅',view:'视图'}).map(([id,label],index) => <button key={id} id={'tab-'+id} role="tab" aria-selected={tab===id} aria-controls="ribbon-tools" tabIndex={tab===id?0:-1} onPointerDown={event=>event.preventDefault()} onClick={()=>setTab(id)} onKeyDown={event=>{ const tabs=['home','insert','page','references','review','view']; const next=event.key==='ArrowRight'?(index+1)%6:event.key==='ArrowLeft'?(index+5)%6:event.key==='Home'?0:event.key==='End'?5:null; if(next!==null){event.preventDefault();setTab(tabs[next]);document.getElementById('tab-'+tabs[next])?.focus();}}}>{language==='en' && id==='insert'?'Insert':t(label)}</button>)}
+            {Object.entries({home:'开始',insert:'插入',page:'页面',references:'引用',review:'审阅',view:'视图'}).map(([id,label],index) => <button key={id} id={'tab-'+id} role="tab" aria-selected={tab===id} aria-controls="ribbon-tools" tabIndex={tab===id?0:-1} onPointerDown={event=>event.preventDefault()} onClick={()=>setTab(id)} onKeyDown={event=>{ const tabs=['home','insert','page','references','review','view']; const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:null; if(next!==null){event.preventDefault();setTab(tabs[next]);document.getElementById('tab-'+tabs[next])?.focus();}}}>{language==='en' && id==='insert'?'Insert':t(label)}</button>)}
           </div>
           <div id="ribbon-tools" className="ribbon-tools" data-tab={tab} role="tabpanel" aria-labelledby={'tab-'+tab}>
             <div id="document-toolbar"/>
@@ -383,11 +457,19 @@ function App({ initialSource }) {
     </main>
     {comment && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("添加批注")} onSubmit={postComment}><div className="modal-heading"><h2>{t("添加批注")}</h2><button type="button" className="icon-button" aria-label={t("取消批注")} disabled={posting} onClick={() => setComment(null)}><X size={18}/></button></div><p>{t("批注将关联到所选文字，并随文档保存。")}</p><textarea aria-label={t("批注内容")} autoFocus value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder={t("写下你的想法…")} rows={5}/><div className="modal-actions"><button type="button" className="secondary-button" disabled={posting} onClick={() => setComment(null)}>{t("取消")}</button><button className="primary-button" disabled={!commentText.trim() || posting}>{t("添加批注")}<ArrowUpRight size={16}/></button></div></form></div>}
 
-    {fontDialog && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("字体设置")} onSubmit={applyFonts}><div className="modal-heading"><h2>{t("字体设置")}</h2><button type="button" className="icon-button" aria-label={t("关闭字体设置")} disabled={operation} onClick={() => setFontDialog(null)}><X size={18}/></button></div><p className="selection-preview">{fontDialog.wholeDocument?t('应用范围：全部正文'):t("所选文字：")}{!fontDialog.wholeDocument&&fontDialog.text?.slice(0, 100)}</p><label className="field-label">{t("统一字体")}<input autoFocus aria-label={t("统一字体")} list="font-options" maxLength={100} placeholder={t("保持不变")} value={unifiedFont} onChange={event => setUnifiedFont(event.target.value)}/></label><p>{t("如需分别设置，可填写以下两项；它们优先于统一字体。")}</p><label className="field-label">{t("中文字体")}<input aria-label={t("中文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 SimSun")} value={eastFont} onChange={event => setEastFont(event.target.value)}/></label><label className="field-label">{t("西文字体")}<input aria-label={t("西文字体")} list="font-options" maxLength={100} placeholder={t("保持不变，例如 Times New Roman")} value={westFont} onChange={event => setWestFont(event.target.value)}/></label><datalist id="font-options">{FONT_OPTIONS.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</datalist><p>{t("留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。")}</p><div className="modal-actions"><button type="button" className="secondary-button" disabled={operation} onClick={() => setFontDialog(null)}>{t("取消")}</button><button className="primary-button" disabled={operation || (!unifiedFont.trim() && !eastFont.trim() && !westFont.trim())}>{t("应用字体")}</button></div></form></div>}
+    {fontDialog && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("字体设置")} onSubmit={applyFonts}>
+      <div className="modal-heading"><h2>{t("字体设置")}</h2><button type="button" className="icon-button" aria-label={t("关闭字体设置")} disabled={operation} onClick={() => setFontDialog(null)}><X size={18}/></button></div>
+      <p className="selection-preview">{fontDialog.empty ? (language === 'en' ? 'Applies to text typed at the cursor.' : '应用于光标处接下来输入的文字。') : t('所选文字：') + (fontDialog.text || '').slice(0, 100)}</p>
+      <label className="field-label">{t('中文字体')}<input autoFocus aria-label={t('中文字体')} list="font-options" maxLength={100} placeholder={fontDialog.initial.east.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : t('保持不变')} value={eastFont} onChange={event => setEastFont(event.target.value)}/></label>
+      <label className="field-label">{t('西文字体')}<input aria-label={t('西文字体')} list="font-options" maxLength={100} placeholder={fontDialog.initial.west.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : t('保持不变')} value={westFont} onChange={event => setWestFont(event.target.value)}/></label>
+      <datalist id="font-options">{FONT_OPTIONS.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</datalist>
+      <p>{t('留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。')}</p>
+      <div className="modal-actions"><button type="button" className="secondary-button" disabled={operation} onClick={() => setFontDialog(null)}>{t('取消')}</button><button className="primary-button" disabled={operation}>{t('应用字体')}</button></div>
+    </form></div>}
     {references && <ReferencesDialog doc={editor.current.activeEditor.doc} capture={references.capture} close={()=>setReferences(null)} insert={insertReference}/>}
     {error && <NoticeDialog message={error} close={()=>setError('')}/>}
     {settings && <SettingsDialog language={chosenLanguage} setLanguage={setChosenLanguage} author={chosenAuthor} setAuthor={setChosenAuthor} busy={busy} close={() => setSettings(false)} submit={applySettings}/>}
-    {pageSetup && <PageDialog sections={pageSetup} sectionIndex={sectionIndex} setSectionIndex={setSectionIndex} paper={paper} setPaper={setPaper} orientation={orientation} setOrientation={setOrientation} busy={operation} close={() => setPageSetup(null)} submit={applyPageSetup}/>}
+    {pageSetup && <PageDialog sections={pageSetup} sectionIndex={sectionIndex} setSectionIndex={choosePageSection} paper={paper} setPaper={setPaper} orientation={orientation} setOrientation={setOrientation} busy={operation} close={() => setPageSetup(null)} submit={applyPageSetup}/>}
   </div>;
 }
 const initialSource = await sessionHandoff('get').catch(() => null);

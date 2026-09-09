@@ -21,6 +21,16 @@ const groups=[{aliases:['宋体','SimSun'],candidates:[
  {family:'AR PL KaitiM GB',regular:['AR PL KaitiM GB'],bold:[],faithful:false},
  ]}];
 groups.push({aliases:['楷体_GB2312','KaiTi_GB2312'],candidates:[{...groups[2].candidates[1],faithful:true},{...groups[2].candidates[0],faithful:false},...groups[2].candidates.slice(2)]});
+const fangSong={family:'FangSong',regular:['FangSong','仿宋','FangSong Regular'],bold:[],faithful:true};
+const fangSongLegacy={family:'FangSong_GB2312',regular:['FangSong_GB2312','仿宋_GB2312'],bold:[],faithful:true};
+groups.push(
+ {aliases:['仿宋','FangSong'],candidates:[fangSong,{...fangSongLegacy,faithful:false}]},
+ {aliases:['仿宋_GB2312','FangSong_GB2312'],candidates:[fangSongLegacy,{...fangSong,faithful:false}]},
+ {aliases:['微软雅黑','Microsoft YaHei'],candidates:[
+  {family:'Microsoft YaHei',regular:['Microsoft YaHei','微软雅黑','Microsoft YaHei Regular'],bold:['Microsoft YaHei Bold'],faithful:true},
+  ...groups[1].candidates.filter(candidate=>['Noto Sans CJK SC','Source Han Sans SC','PingFang SC'].includes(candidate.family)),
+ ]},
+);
 async function face(family,names,weight=400){
  if(!names.length)return null;
  const source=names.map(name=>`local(${JSON.stringify(name)})`).join(',');

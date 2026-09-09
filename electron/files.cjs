@@ -17,6 +17,29 @@ async function readDocx(filename) {
 }
 async function atomicWrite(filename, bytes, expectedHash) {
   validateDocx(bytes, filename);
+  let mode = 0o600;
+  let entry;
+  try {
+    entry = await fs.lstat(filename);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (entry) {
+    // Saving a document opened through a link must update its target, not
+    // silently replace the link with an unrelated regular file.
+    if (entry.isSymbolicLink()) {
+      try { filename = await fs.realpath(filename); }
+      catch (error) {
+        if (error.code === 'ENOENT') throw new Error('文件链接的目标已移动或删除，请使用“另存为”。');
+        throw error;
+      }
+    }
+    const existing = await fs.stat(filename);
+    if (!existing.isFile()) throw new Error('保存目标不是普通文件，请使用“另存为”。');
+    mode = existing.mode & 0o777;
+    if (!(mode & 0o222)) throw new Error('文档为只读，请使用“另存为”。');
+    await fs.access(filename, require('node:fs').constants.W_OK);
+  }
   if (expectedHash) {
     let current;
     try { current = await fs.readFile(filename); } catch { throw new Error('原文件已移动或删除，请使用“另存为”。'); }
@@ -27,6 +50,7 @@ async function atomicWrite(filename, bytes, expectedHash) {
   try {
     handle = await fs.open(temporary, 'wx', 0o600);
     await handle.writeFile(bytes);
+    await handle.chmod(mode);
     await handle.sync();
     await handle.close();
     handle = null;
