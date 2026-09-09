@@ -11,7 +11,9 @@ import { FontStatus } from './FontStatus';
 import { WordCount } from './WordCount';
 import { ZoomControls } from './ZoomControls';
 import { installHistoryShortcuts } from './history-shortcuts';
-import { readSelectionFonts, changedFontPatch, applySelectionFonts, getTypingFonts, setTypingFonts, clearTypingFonts } from './font-settings';
+import { readSelectionFonts, changedFontPatch, applySelectionFonts, applyDocumentDefaultFonts, clearTypingFonts } from './font-settings';
+import { FontPicker } from './FontPicker';
+import { applyDocumentFonts } from './document-fonts';
 import { NoticeDialog } from './NoticeDialog';
 import { ReferencesDialog } from './ReferencesDialog';
 import { insertSourceCitation, updateBibliography } from './citations';
@@ -59,6 +61,7 @@ function App({ initialSource }) {
   const [fontDialog, setFontDialog] = useState(null);
   const [eastFont, setEastFont] = useState('');
   const [westFont, setWestFont] = useState('');
+  const [fontNames, setFontNames] = useState([]);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [references, setReferences] = useState(null);
   const [tab, setTab] = useState('home');
@@ -234,15 +237,22 @@ function App({ initialSource }) {
     try {
       const instance = editor.current;
       const active = instance.activeEditor;
-      const capture = await active.doc.selection.current({ includeText: true });
-      if (!capture.selectionTarget) throw new Error(language === 'en' ? 'Place the cursor in the document first.' : '请先在文档中放置光标或选择文字。');
+      let capture;
+      try { capture = await active.doc.selection.current({ includeText: true }); }
+      catch { capture = { empty: true, selectionTarget: null }; }
+      if (!capture.selectionTarget) capture = { ...capture, empty: true };
 
       if (instance !== editor.current || active !== instance.activeEditor) return;
       const initial = await readSelectionFonts(instance, capture);
       if (instance !== editor.current || active !== instance.activeEditor) return;
-      const pending = capture.empty ? getTypingFonts(active) : {};
-      if (pending.eastAsia) initial.east = { value: pending.eastAsia, mixed: false };
-      if (pending.ascii) initial.west = { value: pending.ascii, mixed: false };
+      let names = FONT_OPTIONS.map(font => font.value);
+      if (desktop?.listFonts) names = await desktop.listFonts();
+      else if (window.queryLocalFonts) {
+        try { names = (await window.queryLocalFonts()).map(font => font.family); }
+        catch { /* Browser permission may be unavailable; desktop uses fontconfig. */ }
+      }
+      if (instance !== editor.current || active !== instance.activeEditor) return;
+      setFontNames(names);
       initial.east.value = canonicalizeFontName(initial.east.value);
       initial.west.value = canonicalizeFontName(initial.west.value);
       setEastFont(initial.east.value); setWestFont(initial.west.value);
@@ -257,10 +267,13 @@ function App({ initialSource }) {
     postingRef.current = true; setOperation(true);
     try {
       if (editor.current.activeEditor !== fontDialog.active) throw new Error(language === 'en' ? 'The document changed. Reopen font settings.' : '文档已切换，请重新打开字体设置。');
-      ensureSuccess(await fontDialog.active.authoring.setSelectionTarget({ target: fontDialog.selectionTarget, focus: true }));
-      if (fontDialog.empty) await setTypingFonts(editor.current, value, setError, mode === 'suggesting' ? 'tracked' : 'direct');
-      else await applySelectionFonts(fontDialog.active, fontDialog.initial, value, mode === 'suggesting' ? 'tracked' : 'direct');
-      if (!fontDialog.empty) changed();
+      if (fontDialog.initial.documentDefaults) {
+        await applyDocumentFonts(editor.current, fontDialog.initial, value, mode === 'suggesting' ? 'tracked' : 'direct', changed);
+      } else {
+        ensureSuccess(await fontDialog.active.authoring.setSelectionTarget({ target: fontDialog.selectionTarget, focus: true }));
+        await applySelectionFonts(fontDialog.active, fontDialog.initial, value, mode === 'suggesting' ? 'tracked' : 'direct');
+        changed();
+      }
       setFontDialog(null);
     } catch (cause) { setError(cause.message); }
     finally { postingRef.current = false; setOperation(false); }
@@ -459,10 +472,9 @@ function App({ initialSource }) {
 
     {fontDialog && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={t("字体设置")} onSubmit={applyFonts}>
       <div className="modal-heading"><h2>{t("字体设置")}</h2><button type="button" className="icon-button" aria-label={t("关闭字体设置")} disabled={operation} onClick={() => setFontDialog(null)}><X size={18}/></button></div>
-      <p className="selection-preview">{fontDialog.empty ? (language === 'en' ? 'Applies to text typed at the cursor.' : '应用于光标处接下来输入的文字。') : t('所选文字：') + (fontDialog.text || '').slice(0, 100)}</p>
-      <label className="field-label">{t('中文字体')}<input autoFocus aria-label={t('中文字体')} list="font-options" maxLength={100} placeholder={fontDialog.initial.east.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : t('保持不变')} value={eastFont} onChange={event => setEastFont(event.target.value)}/></label>
-      <label className="field-label">{t('西文字体')}<input aria-label={t('西文字体')} list="font-options" maxLength={100} placeholder={fontDialog.initial.west.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : t('保持不变')} value={westFont} onChange={event => setWestFont(event.target.value)}/></label>
-      <datalist id="font-options">{FONT_OPTIONS.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</datalist>
+      <p className="selection-preview">{fontDialog.initial.documentDefaults ? (language === 'en' ? 'Applies to the whole document and its default fonts.' : '应用于整篇文档，同时更新文档默认字体。') : t('所选文字：') + (fontDialog.text || '').slice(0, 100)}</p>
+      <FontPicker autoFocus label={t('中文字体')} fonts={fontNames} value={eastFont} onChange={setEastFont} disabled={operation} mixed={fontDialog.initial.east.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : ''} emptyLabel={t('保持不变')}/>
+      <FontPicker label={t('西文字体')} fonts={fontNames} value={westFont} onChange={setWestFont} disabled={operation} mixed={fontDialog.initial.west.mixed ? (language === 'en' ? 'Mixed fonts' : '多种字体') : ''} emptyLabel={t('保持不变')}/>
       <p>{t('留空保持原设置。字体名称随 DOCX 保存；本机未安装的字体会使用替代字体显示。')}</p>
       <div className="modal-actions"><button type="button" className="secondary-button" disabled={operation} onClick={() => setFontDialog(null)}>{t('取消')}</button><button className="primary-button" disabled={operation}>{t('应用字体')}</button></div>
     </form></div>}

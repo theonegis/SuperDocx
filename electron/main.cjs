@@ -3,6 +3,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { lstat } = require('node:fs/promises');
+const execFileAsync = require('node:util').promisify(require('node:child_process').execFile);
 const { MAX_BYTES, readDocx, atomicWrite } = require('./files.cjs');
 const zotero = require('./zotero.cjs').createZoteroClient();
 // Account connection is session-only; no plain-text key is persisted.
@@ -15,6 +16,11 @@ let mainWindow;
 let language = 'en';
 ipcMain.handle('app:defaults',event=>{trusted(event);let username;try{username=require('node:os').userInfo().username;}catch{username=process.env.USER||process.env.USERNAME||'User';}const locale=app.getPreferredSystemLanguages()[0]||app.getLocale();return {username,language:/^zh(?:[-_]|$)/i.test(locale)?'zh':'en'};});
 const tx = (zh, en) => language === 'en' ? en : zh;
+ipcMain.handle('fonts:list', async event => {
+  trusted(event);
+  const { stdout } = await execFileAsync('fc-list', ['--format', '%{family}\n'], { timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+  return [...new Set(stdout.split(/[\r\n,]+/).map(name => name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+});
 ipcMain.handle('app:reload', (event) => { trusted(event); setImmediate(() => mainWindow.webContents.reload()); });
 ipcMain.handle('app:language', (event, value) => { trusted(event); language = value === 'en' ? 'en' : 'zh'; installMenu(); });
 let dirty = false;

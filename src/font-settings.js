@@ -43,6 +43,11 @@ export async function readSelectionFonts(instance, capture) {
   }
   const defaultStyle = all(styles, 'style').find(node => attr(node, 'type') === 'paragraph' && ['1', 'true'].includes(attr(node, 'default')));
   const base = style(attr(defaultStyle, 'styleId'), fonts(defaults));
+  if (!capture?.selectionTarget || capture.empty) {
+    const resolved = fonts(defaults);
+    const defaultFonts = Object.fromEntries([...(child(defaults, 'rFonts')?.attributes || [])].filter(item => item.namespaceURI === W).map(item => [item.localName, item.value]));
+    return { east: { value: resolved.eastAsia || '', mixed: false }, west: { value: resolved.ascii || resolved.hAnsi || '', mixed: !!(resolved.ascii && resolved.hAnsi && resolved.ascii !== resolved.hAnsi) }, runs: [], defaultFonts, documentDefaults: true };
+  }
   const target = capture.selectionTarget;
   const story = target.story || target.start.story;
   let part = 'word/document.xml';
@@ -134,6 +139,14 @@ export function changedFontPatch(initial, east, west) {
   if (east && east !== initial.east.value) Object.assign(patch, { eastAsia: east, eastAsiaTheme: null });
   if (west && west !== initial.west.value) Object.assign(patch, { ascii: west, hAnsi: west, asciiTheme: null, hAnsiTheme: null });
   return patch;
+}
+
+export async function applyDocumentDefaultFonts(active, initial, patch) {
+  const fontFamily = { ...initial.defaultFonts, ...patch };
+  for (const key of Object.keys(fontFamily)) if (fontFamily[key] === null) delete fontFamily[key];
+  const receipt = await active.doc.styles.apply({ target: { scope: 'docDefaults', channel: 'run' }, patch: { fontFamily } });
+  if (!receipt.success) throw new Error(receipt.failure?.message || 'Could not apply document fonts.');
+  return receipt.changed;
 }
 
 const typingFonts = new WeakMap();
